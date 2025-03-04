@@ -5,6 +5,7 @@ se puede compilar con "go build" en el directorio donde resida main.go
 
 versión: 1.0
 
+Tulikiyakati
 curso: 			2024-2025
 asignatura: 	Seguridad y Confidencialidad
 estudiantes: 	Esther Adeyemi y Sebastián Hernández
