@@ -11,9 +11,27 @@ import (
 	"net/http"
 	"os"
 
+	// "prac/pkg/encryption"
 	"prac/pkg/api"
 	"prac/pkg/ui"
 )
+
+// Definimos una estructura para serializar los datos
+type Paciente struct {
+	IdPac     int    `json:"idpac"`
+	Nombre    string `json:"nombre"`
+	Apellidos string `json:"apellidos"`
+	Edad      int    `json:"edad"`
+	Email     string `json:"email"`
+}
+
+type Medico struct {
+	IdMed     int    `json:"idpac"`
+	Nombre    string `json:"nombre"`
+	Apellidos string `json:"apellidos"`
+	Username  string `json:"username"`
+	Password  string `json:"password"`
+}
 
 // client estructura interna no exportada que controla
 // el estado de la sesión (usuario, token) y logger.
@@ -113,12 +131,14 @@ func (c *client) registerUser() {
 
 	username := ui.ReadInput("Nombre de usuario")
 	password := ui.ReadInput("Contraseña")
+	rol := ui.ReadInput("Rol") //Cambiar a lo que se obtenga de la lista en el html
 
 	// Enviamos la acción al servidor
 	res := c.sendRequest(api.Request{
 		Action:   api.ActionRegister,
 		Username: username,
 		Password: password,
+		Rol:      rol,
 	})
 
 	// Mostramos resultado
@@ -206,6 +226,23 @@ func (c *client) updateData() {
 		fmt.Println("No estás logueado. Inicia sesión primero.")
 		return
 	}
+
+	// //Leeremos el archivo JSON serializado
+	// p := Persona{
+	// 	Nombre: "Sebastián",
+	// 	Edad:   25,
+	// 	Email:  "sebastian@example.com",
+	// }
+
+	// // Convertir la estructura a JSON
+	// jsonData, err := json.Marshal(p)
+	// if err != nil {
+	// 	fmt.Println("Error al serializar:", err)
+	// 	return
+	// }
+
+	// // Imprimir JSON como string
+	// fmt.Println(string(jsonData))
 
 	// Leemos la nueva Data
 	newData := ui.ReadInput("Introduce el contenido que desees almacenar")
