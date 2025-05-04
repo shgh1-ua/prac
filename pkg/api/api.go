@@ -14,7 +14,7 @@ const (
 type Request struct {
 	Action   string `json:"action"`
 	Username string `json:"username"`
-	Rol      string `json:"rol"`
+	// Rol      string `json:"rol"`
 	Password string `json:"password,omitempty"`
 	Token    string `json:"token,omitempty"`
 	Data     string `json:"data,omitempty"`

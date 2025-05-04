@@ -27,7 +27,7 @@ func NewBboltStore(path string) (*BboltStore, error) {
 
 // Put almacena o actualiza (key, value) dentro de un bucket = namespace.
 // No se soportan sub-buckets.
-func (s *BboltStore) Put(namespace string, key, value []byte) error {
+func (s *BboltStore) Put(namespace string, key, value []byte) error { //antes de hacer el value cufamos el value. Igual con el get
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists([]byte(namespace))
 		if err != nil {

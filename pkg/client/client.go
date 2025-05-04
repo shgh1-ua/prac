@@ -4,6 +4,7 @@ package client
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,9 +12,12 @@ import (
 	"net/http"
 	"os"
 
-	// "prac/pkg/encryption"
 	"prac/pkg/api"
+	"prac/pkg/encryption"
 	"prac/pkg/ui"
+
+	"crypto/aes"
+	"crypto/tls"
 )
 
 // Definimos una estructura para serializar los datos
@@ -23,14 +27,24 @@ type Paciente struct {
 	Apellidos string `json:"apellidos"`
 	Edad      int    `json:"edad"`
 	Email     string `json:"email"`
+	Username  string `json:"username"`
+	Password  string `json:"password"`
 }
 
 type Medico struct {
-	IdMed     int    `json:"idpac"`
+	IdMed     int    `json:"idmed"`
 	Nombre    string `json:"nombre"`
 	Apellidos string `json:"apellidos"`
 	Username  string `json:"username"`
 	Password  string `json:"password"`
+}
+
+type HistorialMedico struct {
+	ID          string `json:"id"`
+	Nombre      string `json:"nombre"`
+	Edad        int    `json:"edad"`
+	Diagnostico string `json:"diagnostico"`
+	Tratamiento string `json:"tratamiento"`
 }
 
 // client estructura interna no exportada que controla
@@ -131,14 +145,14 @@ func (c *client) registerUser() {
 
 	username := ui.ReadInput("Nombre de usuario")
 	password := ui.ReadInput("Contraseña")
-	rol := ui.ReadInput("Rol") //Cambiar a lo que se obtenga de la lista en el html
+	// rol := ui.ReadInput("Rol") //Cambiar a lo que se obtenga de la lista en el html
 
 	// Enviamos la acción al servidor
 	res := c.sendRequest(api.Request{
 		Action:   api.ActionRegister,
 		Username: username,
 		Password: password,
-		Rol:      rol,
+		// Rol:      rol,
 	})
 
 	// Mostramos resultado
@@ -213,7 +227,36 @@ func (c *client) fetchData() {
 
 	// Si fue exitoso, mostramos la data recibida
 	if res.Success {
-		fmt.Println("Tus datos:", res.Data)
+		// Comprobar si el cliente está enviando datos cifrados
+		if string(res.Data) == "" {
+			fmt.Println("No se recibieron datos en el cliente")
+		}
+		fmt.Println("Datos crudos recibidos: ", res.Data)
+		// Decodificar el string base64 recibido
+		datosCifrados, err := base64.StdEncoding.DecodeString(string(res.Data))
+		fmt.Println("Datos cifrados: ", datosCifrados)
+		// Definir la clave y el vector de inicialización (IV) que usaste en el cliente
+		key := encryption.ObtenerSHA256("Clave")
+		iv := encryption.ObtenerSHA256("<inicializar>")[:aes.BlockSize] // aes.BlockSize es de 16 bytes
+
+		// Descifrar el contenido cifrado
+		textoEnClaroDescifrado, err := encryption.DescifrarBytes(datosCifrados, key, iv)
+		if err != nil {
+			fmt.Println("Error al descifrar los datos en el cliente: ", err)
+		}
+		fmt.Println("Datos descifrados: ", textoEnClaroDescifrado)
+
+		// // Procesar el historial médico que llega descifrado -------------------- IMPLEMENTAR - IMPORTANTE PARA EL WAILS
+		// var historial Medico
+		// if err := json.Unmarshal([]byte(textoEnClaroDescifrado), &historial); err != nil {
+		// 	return api.Response{Success: false, Message: "Error al procesar los datos del historial"}
+		// }
+
+		//Por ahora usaremos "Clave" como key y <inicializar> como vector de inicialización (similar a la sal) para facilitar las cosas.
+		//En casos reales debe ser diferente para cada usuario y debe ser el mismo al cifrar y descifrar ----> tomar en cuenta luego al modificar
+
+		//-------------------------------
+		fmt.Println("Tus datos:", textoEnClaroDescifrado) //Por ahora sale en formato JSON mientras no se implemente una función de procesamiento
 	}
 }
 
@@ -234,25 +277,68 @@ func (c *client) updateData() {
 	// 	Email:  "sebastian@example.com",
 	// }
 
-	// // Convertir la estructura a JSON
-	// jsonData, err := json.Marshal(p)
-	// if err != nil {
-	// 	fmt.Println("Error al serializar:", err)
-	// 	return
-	// }
-
 	// // Imprimir JSON como string
 	// fmt.Println(string(jsonData))
 
 	// Leemos la nueva Data
-	newData := ui.ReadInput("Introduce el contenido que desees almacenar")
+	// newData := ui.ReadInput("Introduce el contenido del historial que desees almacenar")
+	fmt.Println("Introduce el contenido del nuevo historial médico que desees almacenar:")
+	nombre := ui.ReadInput("Nombre")
+	edad := ui.ReadInt("Edad")
+	diagnostico := ui.ReadInput("Diagnostico")
+	tratamiento := ui.ReadInput("Tratamiento")
 
-	// Enviamos la solicitud de actualización
+	historial := HistorialMedico{
+		Nombre:      nombre,
+		Edad:        edad,
+		Diagnostico: diagnostico,
+		Tratamiento: tratamiento,
+	}
+
+	newData, err := json.Marshal(historial)
+	if err != nil { // manejar error
+		fmt.Println("Error al serializar los datos", err)
+		return
+	}
+
+	//Ciframos antes de mandar al servidor. Lo hacemos suponiendo que el servidor no es de confiar por sea cual fuere la razón (administrador poco confiable, datos comprometidos, uso de http, etc.)
+	key := encryption.ObtenerSHA256("Clave")
+	iv := encryption.ObtenerSHA256("<inicializar>")[:aes.BlockSize]
+
+	textoEnClaro := string(newData)
+	/*Meteremos los datos cifrados en un archivo .enc porque:
+	✅ Ventajas:
+		- Modularidad: puedes inspeccionar, mover, hacer backup o gestionar esos archivos fácilmente.
+		- Escalabilidad: ideal si cada usuario tiene su propio archivo cifrado (ej: historial_usuario123.zip.enc).
+		- Interoperabilidad: otros procesos (scripts, servicios) pueden usar los archivos sin tocar el código del programa.
+		- Manejo eficiente de grandes volúmenes de datos: archivos son más fáciles de manejar que strings gigantes.
+	❌ Desventajas:
+		- Es más lento (I/O con disco).
+		- Requiere limpieza de archivos temporales para evitar residuos.
+		- En sistemas distribuidos (como web APIs), debes transmitirlos con cuidado (base64, MIME types, etc.).
+	*/
+	//----------CIFRADO--------------
+	datosCifrados, err := encryption.CifrarString(textoEnClaro, key, iv)
+	if err != nil {
+		fmt.Println("Error al cifrar Datos:", err)
+		return
+	}
+
+	//----------DESCIFRADO-----------
+	// textoEnClaroDescifrado := encryption.DescifrarArchivoEnString(nombreArchivoDatos, key, iv)
+	// //----------Comprobación-----------
+	// if textoEnClaroDescifrado == textoEnClaro {
+	// 	fmt.Println("Cifrado realizado correctamente")
+	// } else {
+	// 	fmt.Println("Algo ha fallado con el cifrado")
+	// }
+
+	// Enviar el contenido cifrado
 	res := c.sendRequest(api.Request{
 		Action:   api.ActionUpdateData,
 		Username: c.currentUser,
 		Token:    c.authToken,
-		Data:     newData,
+		Data:     datosCifrados,
 	})
 
 	fmt.Println("Éxito:", res.Success)
@@ -291,7 +377,14 @@ func (c *client) logoutUser() {
 // devuelve la respuesta decodificada. Se usa para todas las acciones.
 func (c *client) sendRequest(req api.Request) api.Response {
 	jsonData, _ := json.Marshal(req)
-	resp, err := http.Post("http://localhost:8080/api", "application/json", bytes.NewBuffer(jsonData))
+
+	// Configurar cliente HTTPS que ignora certificados autofirmados
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{Transport: tr}
+
+	resp, err := client.Post("http://localhost:8080/api", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		fmt.Println("Error al contactar con el servidor:", err)
 		return api.Response{Success: false, Message: "Error de conexión"}
