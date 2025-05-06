@@ -3,7 +3,27 @@
 // que debe cumplir la interfaz Store.
 package store
 
-import "fmt"
+import (
+	"fmt"
+
+	bolt "go.etcd.io/bbolt"
+)
+
+// boltStore es una implementación de Store usando BoltDB.
+type boltStore struct {
+	db *bolt.DB
+}
+
+// ForEach itera sobre todas las claves y valores en un namespace (bucket).
+func (s *BboltStore) ForEach(namespace string, fn func(key, value []byte) error) error {
+	return s.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte(namespace))
+		if bucket == nil {
+			return fmt.Errorf("bucket not found: %s", namespace)
+		}
+		return bucket.ForEach(fn)
+	})
+}
 
 // Store define los métodos comunes que deben implementar
 // los diferentes motores de almacenamiento.
@@ -25,6 +45,8 @@ type Store interface {
 	// KeysByPrefix devuelve las claves que empiecen con 'prefix' dentro
 	// del namespace especificado.
 	KeysByPrefix(namespace string, prefix []byte) ([][]byte, error)
+
+	ForEach(namespace string, fn func(key, value []byte) error) error // Asegúrate de incluir esto
 
 	// Close cierra cualquier recurso abierto (por ej. cerrar la base de datos).
 	Close() error

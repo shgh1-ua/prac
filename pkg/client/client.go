@@ -139,42 +139,317 @@ func (c *client) runLoop() {
 
 // registerUser pide credenciales y las envía al servidor para un registro.
 // Si el registro es exitoso, se intenta el login automático.
+// ...existing code...
+
+// Añadimos un nuevo menú para el administrador.
+func (c *client) adminMenu() {
+	for {
+		ui.ClearScreen()
+		title := fmt.Sprintf("Menú de Administrador (%s)", c.currentUser)
+		options := []string{
+			"Ver todos los expedientes médicos",
+			"Crear, editar o eliminar expedientes",
+			"Registrar usuarios (médicos, pacientes, administradores)",
+			"Eliminar cualquier usuario",
+			"Ver, editar o eliminar cualquier cuenta",
+			"Asignar o cambiar roles de usuario",
+			"Acceder a estadísticas y logs del sistema",
+			"Volver al menú principal",
+		}
+
+		choice := ui.PrintMenu(title, options)
+
+		switch choice {
+		case 1:
+			c.viewAllRecords()
+		case 2:
+			c.manageRecords()
+		case 3:
+			c.registerUser()
+		case 4:
+			c.deleteUser()
+		case 5:
+			c.manageAccounts()
+		case 6:
+			c.assignRoles()
+		case 7:
+			c.viewStatsAndLogs()
+		case 8:
+			return
+		}
+
+		ui.Pause("Pulsa [Enter] para continuar...")
+	}
+}
+
+// Modificamos el registro para incluir el rol.
 func (c *client) registerUser() {
 	ui.ClearScreen()
 	fmt.Println("** Registro de usuario **")
 
 	username := ui.ReadInput("Nombre de usuario")
 	password := ui.ReadInput("Contraseña")
-	rol := ui.ReadInput("Rol") //Cambiar a lo que se obtenga de la lista en el html
+	role := ui.ReadInput("Rol (admin, doctor, paciente)")
 
-	// Enviamos la acción al servidor
 	res := c.sendRequest(api.Request{
 		Action:   api.ActionRegister,
 		Username: username,
 		Password: password,
-		Rol:      rol,
+		Role:     role,
 	})
 
-	// Mostramos resultado
 	fmt.Println("Éxito:", res.Success)
 	fmt.Println("Mensaje:", res.Message)
 
-	// Si fue exitoso, probamos loguear automáticamente.
 	if res.Success {
-		c.log.Println("Registro exitoso; intentando login automático...")
+		// Guardamos el token y el usuario actual
+		c.currentUser = username
+		c.authToken = res.Token
 
-		loginRes := c.sendRequest(api.Request{
-			Action:   api.ActionLogin,
-			Username: username,
-			Password: password,
-		})
-		if loginRes.Success {
-			c.currentUser = username
-			c.authToken = loginRes.Token
-			fmt.Println("Login automático exitoso. Token guardado.")
-		} else {
-			fmt.Println("No se ha podido hacer login automático:", loginRes.Message)
+		// Si el rol es admin, mostramos el menú de administrador
+		if res.Data == "admin" {
+			fmt.Println("Iniciando sesión como administrador...")
+			ui.Pause("Pulsa [Enter] para continuar...")
+			c.adminMenu()
 		}
+	}
+}
+
+// Ver todos los expedientes médicos
+func (c *client) viewAllRecords() {
+	ui.ClearScreen()
+	fmt.Println("** Ver todos los expedientes médicos **")
+
+	res := c.sendRequest(api.Request{
+		Action:   api.ActionViewAllRecords,
+		Username: c.currentUser,
+		Token:    c.authToken,
+	})
+
+	fmt.Println("Éxito:", res.Success)
+	fmt.Println("Mensaje:", res.Message)
+	if res.Success {
+		fmt.Println("Expedientes médicos:")
+		fmt.Println(res.Data)
+	}
+}
+
+// Crear, editar o eliminar expedientes
+func (c *client) manageRecords() {
+	ui.ClearScreen()
+	fmt.Println("** Crear, editar o eliminar expedientes **")
+
+	options := []string{"Crear expediente", "Editar expediente", "Eliminar expediente", "Volver"}
+	choice := ui.PrintMenu("Gestión de expedientes", options)
+
+	switch choice {
+	case 1:
+		// Crear expediente
+		nombre := ui.ReadInput("Nombre del paciente")
+		edad := ui.ReadInt("Edad del paciente")
+		diagnostico := ui.ReadInput("Diagnóstico")
+		tratamiento := ui.ReadInput("Tratamiento")
+
+		historial := HistorialMedico{
+			Nombre:      nombre,
+			Edad:        edad,
+			Diagnostico: diagnostico,
+			Tratamiento: tratamiento,
+		}
+
+		data, _ := json.Marshal(historial)
+		res := c.sendRequest(api.Request{
+			Action:   api.ActionCreateRecord,
+			Username: c.currentUser,
+			Token:    c.authToken,
+			Data:     string(data),
+		})
+
+		fmt.Println("Éxito:", res.Success)
+		fmt.Println("Mensaje:", res.Message)
+
+	case 2:
+		// Editar expediente
+		id := ui.ReadInput("ID del expediente a editar")
+		nombre := ui.ReadInput("Nuevo nombre del paciente")
+		edad := ui.ReadInt("Nueva edad del paciente")
+		diagnostico := ui.ReadInput("Nuevo diagnóstico")
+		tratamiento := ui.ReadInput("Nuevo tratamiento")
+
+		historial := HistorialMedico{
+			ID:          id,
+			Nombre:      nombre,
+			Edad:        edad,
+			Diagnostico: diagnostico,
+			Tratamiento: tratamiento,
+		}
+
+		data, _ := json.Marshal(historial)
+		res := c.sendRequest(api.Request{
+			Action:   api.ActionEditRecord,
+			Username: c.currentUser,
+			Token:    c.authToken,
+			Data:     string(data),
+		})
+
+		fmt.Println("Éxito:", res.Success)
+		fmt.Println("Mensaje:", res.Message)
+
+	case 3:
+		// Eliminar expediente
+		id := ui.ReadInput("ID del expediente a eliminar")
+		res := c.sendRequest(api.Request{
+			Action:   api.ActionDeleteRecord,
+			Username: c.currentUser,
+			Token:    c.authToken,
+			Data:     id,
+		})
+
+		fmt.Println("Éxito:", res.Success)
+		fmt.Println("Mensaje:", res.Message)
+	}
+}
+
+// Registrar usuarios (médicos, pacientes, administradores)
+func (c *client) registerUser1() {
+	ui.ClearScreen()
+	fmt.Println("** Registrar usuario **")
+
+	username := ui.ReadInput("Nombre de usuario")
+	password := ui.ReadInput("Contraseña")
+	role := ui.ReadInput("Rol (admin, doctor, paciente)")
+
+	res := c.sendRequest(api.Request{
+		Action:   api.ActionRegister,
+		Username: username,
+		Password: password,
+		Role:     role,
+	})
+
+	fmt.Println("Éxito:", res.Success)
+	fmt.Println("Mensaje:", res.Message)
+}
+
+// Eliminar cualquier usuario
+func (c *client) deleteUser() {
+	ui.ClearScreen()
+	fmt.Println("** Eliminar usuario **")
+
+	username := ui.ReadInput("Nombre de usuario a eliminar")
+	res := c.sendRequest(api.Request{
+		Action:   api.ActionDeleteUser,
+		Username: c.currentUser,
+		Token:    c.authToken,
+		Data:     username,
+	})
+
+	fmt.Println("Éxito:", res.Success)
+	fmt.Println("Mensaje:", res.Message)
+}
+
+// Ver, editar o eliminar cualquier cuenta
+func (c *client) manageAccounts() {
+	ui.ClearScreen()
+	fmt.Println("** Ver, editar o eliminar cuentas **")
+
+	options := []string{"Ver cuenta", "Editar cuenta", "Eliminar cuenta", "Volver"}
+	choice := ui.PrintMenu("Gestión de cuentas", options)
+
+	switch choice {
+	case 1:
+		// Ver cuenta
+		username := ui.ReadInput("Nombre de usuario a consultar")
+		res := c.sendRequest(api.Request{
+			Action:   api.ActionViewAccount,
+			Username: c.currentUser,
+			Token:    c.authToken,
+			Data:     username,
+		})
+
+		fmt.Println("Éxito:", res.Success)
+		fmt.Println("Mensaje:", res.Message)
+		if res.Success {
+			fmt.Println("Datos de la cuenta:")
+			fmt.Println(res.Data)
+		}
+
+	case 2:
+		// Editar cuenta
+		username := ui.ReadInput("Nombre de usuario a editar")
+		newRole := ui.ReadInput("Nuevo rol (admin, doctor, paciente)")
+
+		data := map[string]string{
+			"username": username,
+			"role":     newRole,
+		}
+		dataJSON, _ := json.Marshal(data)
+
+		res := c.sendRequest(api.Request{
+			Action:   api.ActionEditAccount,
+			Username: c.currentUser,
+			Token:    c.authToken,
+			Data:     string(dataJSON),
+		})
+
+		fmt.Println("Éxito:", res.Success)
+		fmt.Println("Mensaje:", res.Message)
+
+	case 3:
+		// Eliminar cuenta
+		username := ui.ReadInput("Nombre de usuario a eliminar")
+		res := c.sendRequest(api.Request{
+			Action:   api.ActionDeleteAccount,
+			Username: c.currentUser,
+			Token:    c.authToken,
+			Data:     username,
+		})
+
+		fmt.Println("Éxito:", res.Success)
+		fmt.Println("Mensaje:", res.Message)
+	}
+}
+
+// Asignar o cambiar roles de usuario
+func (c *client) assignRoles() {
+	ui.ClearScreen()
+	fmt.Println("** Asignar o cambiar roles de usuario **")
+
+	username := ui.ReadInput("Nombre de usuario")
+	newRole := ui.ReadInput("Nuevo rol (admin, doctor, paciente)")
+
+	data := map[string]string{
+		"username": username,
+		"role":     newRole,
+	}
+	dataJSON, _ := json.Marshal(data)
+
+	res := c.sendRequest(api.Request{
+		Action:   api.ActionAssignRole,
+		Username: c.currentUser,
+		Token:    c.authToken,
+		Data:     string(dataJSON),
+	})
+
+	fmt.Println("Éxito:", res.Success)
+	fmt.Println("Mensaje:", res.Message)
+}
+
+// Acceder a estadísticas y logs del sistema
+func (c *client) viewStatsAndLogs() {
+	ui.ClearScreen()
+	fmt.Println("** Acceder a estadísticas y logs del sistema **")
+
+	res := c.sendRequest(api.Request{
+		Action:   api.ActionViewStatsAndLogs,
+		Username: c.currentUser,
+		Token:    c.authToken,
+	})
+
+	fmt.Println("Éxito:", res.Success)
+	fmt.Println("Mensaje:", res.Message)
+	if res.Success {
+		fmt.Println("Estadísticas y logs:")
+		fmt.Println(res.Data)
 	}
 }
 
@@ -195,11 +470,17 @@ func (c *client) loginUser() {
 	fmt.Println("Éxito:", res.Success)
 	fmt.Println("Mensaje:", res.Message)
 
-	// Si login fue exitoso, guardamos currentUser y el token.
 	if res.Success {
+		// Guardamos el token y el usuario actual
 		c.currentUser = username
 		c.authToken = res.Token
-		fmt.Println("Sesión iniciada con éxito. Token guardado.")
+
+		// Si el rol es admin, mostramos el menú de administrador
+		if res.Data == "admin" {
+			fmt.Println("Iniciando sesión como administrador...")
+			ui.Pause("Pulsa [Enter] para continuar...")
+			c.adminMenu()
+		}
 	}
 }
 
