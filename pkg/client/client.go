@@ -145,14 +145,14 @@ func (c *client) registerUser() {
 
 	username := ui.ReadInput("Nombre de usuario")
 	password := ui.ReadInput("Contraseña")
-	// rol := ui.ReadInput("Rol") //Cambiar a lo que se obtenga de la lista en el html
+	rol := ui.ReadInput("Rol") //Cambiar a lo que se obtenga de la lista en el html
 
 	// Enviamos la acción al servidor
 	res := c.sendRequest(api.Request{
 		Action:   api.ActionRegister,
 		Username: username,
 		Password: password,
-		// Rol:      rol,
+		Rol:      rol,
 	})
 
 	// Mostramos resultado
