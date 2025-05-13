@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"prac/pkg/api"
 	"prac/pkg/encryption"
@@ -75,36 +76,20 @@ func (c *client) runLoop() {
 
 		// Construimos un título que muestre el usuario logueado, si lo hubiera.
 		var title string
-		if c.currentUser == "" {
-			title = "Menú"
-		} else {
-			title = fmt.Sprintf("Menú (%s)", c.currentUser)
-		}
-
 		// Generamos las opciones dinámicamente, según si hay un login activo.
 		var options []string
-		if c.currentUser == "" {
+		fmt.Println("Debugging en runLoop :) ::: c.currentUser = ", c.currentUser, " c.authToken = ", c.authToken)
+		if c.currentUser == "" { // Hay que mapear la opción elegida según si está logueado o no.
+			fmt.Println("Debugging en runLoop(if) :) ::: c.currentUser = ", c.currentUser, " c.authToken = ", c.authToken)
+			title = "Menú"
 			// Usuario NO logueado: Registro, Login, Salir
 			options = []string{
 				"Registrar usuario",
 				"Iniciar sesión",
 				"Salir",
 			}
-		} else {
-			// Usuario logueado: Ver datos, Actualizar datos, Logout, Salir
-			options = []string{
-				"Ver datos",
-				"Actualizar datos",
-				"Cerrar sesión",
-				"Salir",
-			}
-		}
-
-		// Mostramos el menú y obtenemos la elección del usuario.
-		choice := ui.PrintMenu(title, options)
-
-		// Hay que mapear la opción elegida según si está logueado o no.
-		if c.currentUser == "" {
+			// Mostramos el menú y obtenemos la elección del usuario.
+			choice := ui.PrintMenu(title, options)
 			// Caso NO logueado
 			switch choice {
 			case 1:
@@ -116,24 +101,95 @@ func (c *client) runLoop() {
 				c.log.Println("Saliendo del cliente...")
 				return
 			}
-		} else {
-			// Caso logueado
-			switch choice {
-			case 1:
-				c.fetchData()
-			case 2:
-				c.updateData()
-			case 3:
-				c.logoutUser()
-			case 4:
-				// Opción Salir
-				c.log.Println("Saliendo del cliente...")
-				return
+		} else { //Hay que ver el rol del usuario para saber qué opciones se les va a mostrar
+			// adminMenu se declara de nuevo antes o despues no recuerdo cuando  -----> recordar quitarlo que con ponerlo en runLoop basta
+			title = fmt.Sprintf("Menú (%s)", c.currentUser)
+			res := c.sendRequest(api.Request{
+				Action:   api.ActionManageAccounts,
+				Username: c.currentUser,
+				Token:    c.authToken,
+			})
+			fmt.Println("Datos que hay del usuario: c.authToken: ", c.authToken, " c.currentUser ", c.currentUser, " c.log ", c.log)
+			fmt.Println("Datos obtenidos del servidor: ", res)
+
+			////Esta serie if-else se puede hacer con un for ---->(eficiencia de codigo?)
+			if strings.Contains(res.Data, "admin") {
+				c.adminMenu()
+			} else if strings.Contains(res.Data, "medic") {
+				c.medicMenu()
+			} else {
+				c.patientMenu()
 			}
 		}
-
 		// Pausa para que el usuario vea resultados.
 		ui.Pause("Pulsa [Enter] para continuar...")
+	}
+}
+
+func (c *client) patientMenu() {
+	var title string
+	var options []string //No sé si es meterlo como parámetro en la funcion en vez de declararla otra vez (PREGUNTAR AL PROFESOR)
+	// Usuario logueado: Ver datos, Actualizar datos, Logout, Salir
+	title = fmt.Sprintf("Menú de paciente (%s)", c.currentUser)
+	options = []string{
+		"Ver expedientes asociados",
+		"Actualizar datos personales",
+		"Cerrar sesión",
+		"Salir",
+	}
+
+	choice := ui.PrintMenu(title, options)
+	fmt.Println("Debugging en runLoop(else) :) ::: c.currentUser = ", c.currentUser, " c.authToken = ", c.authToken)
+	// Caso logueado
+	switch choice {
+	case 1:
+		c.fetchData()
+	case 2:
+		c.updateData()
+	case 3:
+		c.logoutUser()
+	case 4:
+		c.logoutUser()
+	default:
+		fmt.Println("Opción no válida, Intente de nuevo")
+	}
+}
+
+func (c *client) medicMenu() {
+	var title string
+	var options []string //No sé si es meterlo como parámetro en la funcion en vez de declararla otra vez (PREGUNTAR AL PROFESOR)
+	// Usuario logueado: Ver datos, Actualizar datos, Logout, Salir
+	title = fmt.Sprintf("Menú de médico (%s)", c.currentUser)
+	options = []string{
+		"Ver lista de pacientes",      //1
+		"Ver todos los expedientes",   //2
+		"Modificar expedientes",       //3
+		"Añadir Expediente",           //4
+		"Eliminar Expediente",         //5
+		"Actualizar datos personales", //6
+		"Cerrar sesión",               //7
+	}
+
+	choice := ui.PrintMenu(title, options)
+	fmt.Println("Debugging en runLoop(else) :) ::: c.currentUser = ", c.currentUser, " c.authToken = ", c.authToken)
+	// Caso logueado
+	switch choice {
+	case 1:
+		c.logoutUser()
+	case 2:
+		c.viewAllRecords()
+	case 3:
+		c.manageRecords()
+	case 4:
+		c.logoutUser()
+	case 5:
+		c.logoutUser()
+	case 6:
+		c.logoutUser()
+	case 7:
+		c.logoutUser()
+	default:
+		fmt.Println("Opción no válida, intente de nuevo")
 	}
 }
 
@@ -143,43 +199,38 @@ func (c *client) runLoop() {
 
 // Añadimos un nuevo menú para el administrador.
 func (c *client) adminMenu() {
-	for {
-		ui.ClearScreen()
-		title := fmt.Sprintf("Menú de Administrador (%s)", c.currentUser)
-		options := []string{
-			"Ver todos los expedientes médicos",
-			"Crear, editar o eliminar expedientes",
-			"Registrar usuarios (médicos, pacientes, administradores)",
-			"Eliminar cualquier usuario",
-			"Ver, editar o eliminar cualquier cuenta",
-			"Asignar o cambiar roles de usuario",
-			"Acceder a estadísticas y logs del sistema",
-			"Volver al menú principal",
-		}
 
-		choice := ui.PrintMenu(title, options)
-
-		switch choice {
-		case 1:
-			c.viewAllRecords()
-		case 2:
-			c.manageRecords()
-		case 3:
-			c.registerUser()
-		case 4:
-			c.deleteUser()
-		case 5:
-			c.manageAccounts()
-		case 6:
-			c.assignRoles()
-		case 7:
-			c.viewStatsAndLogs()
-		case 8:
-			return
-		}
-
-		ui.Pause("Pulsa [Enter] para continuar...")
+	ui.ClearScreen()
+	title := fmt.Sprintf("Menú de Administrador (%s)", c.currentUser)
+	options := []string{
+		"Registrar usuarios (médicos, pacientes, administradores)", //1
+		"Eliminar cualquier usuario",                               //2
+		"Ver, editar o eliminar cualquier cuenta",                  //3
+		"Asignar o cambiar roles de usuario",                       //4
+		"Acceder a estadísticas y logs del sistema",                //5
+		"Cerrar sesión", //6
 	}
+
+	choice := ui.PrintMenu(title, options)
+
+	switch choice {
+	case 1:
+		c.registerUser()
+	case 2:
+		c.deleteUser()
+	case 3:
+		c.manageAccounts()
+	case 4:
+		c.assignRoles()
+	case 5:
+		c.viewStatsAndLogs()
+	case 6:
+		c.logoutUser() //Quité un return aquí
+	default:
+		fmt.Println("Opción no existente, Intente de nuevo")
+	}
+	ui.Pause("Pulsa [Enter] para continuar...")
+
 }
 
 // Modificamos el registro para incluir el rol.
@@ -189,8 +240,20 @@ func (c *client) registerUser() {
 
 	username := ui.ReadInput("Nombre de usuario")
 	password := ui.ReadInput("Contraseña")
-	role := ui.ReadInput("Rol (admin, doctor, paciente)")
 
+	var role string
+	role = ui.ReadInput("Rol (administrador, médico, paciente)")
+
+	if strings.Contains(role, "admin") {
+		role = "admin"
+	} else if strings.Contains(role, "medic") || strings.Contains(role, "doc") {
+		role = "medic"
+	} else if strings.Contains(role, "pa") {
+		role = "patient"
+	} else {
+		fmt.Println("El rol introducido no pudo ser identificado correctamente, pruebe evitando introducir tildes o cambiando de rol")
+		return
+	}
 	res := c.sendRequest(api.Request{
 		Action:   api.ActionRegister,
 		Username: username,
@@ -205,6 +268,7 @@ func (c *client) registerUser() {
 		// Guardamos el token y el usuario actual
 		c.currentUser = username
 		c.authToken = res.Token
+		fmt.Println("Debugging en registerUser :) ::: c.currentUser = ", c.currentUser, " c.authToken = ", c.authToken)
 
 		// Si el rol es admin, mostramos el menú de administrador
 		if res.Data == "admin" {
@@ -409,6 +473,58 @@ func (c *client) manageAccounts() {
 	}
 }
 
+func (c *client) getRole() {
+	// Chequeo básico de que haya sesión
+	if c.currentUser == "" || c.authToken == "" {
+		fmt.Println("No estás logueado. Inicia sesión primero.")
+		return
+	}
+
+	// Hacemos la request con ActionFetchData
+	res := c.sendRequest(api.Request{
+		Action:   api.ActionFetchData,
+		Username: c.currentUser,
+		Token:    c.authToken,
+	})
+
+	fmt.Println("Éxito:", res.Success)
+	fmt.Println("Mensaje:", res.Message)
+
+	// Si fue exitoso, mostramos la data recibida
+	if res.Success {
+		// Comprobar si el cliente está enviando datos cifrados
+		if string(res.Data) == "" {
+			fmt.Println("No se recibieron datos en el cliente")
+		}
+		fmt.Println("Datos crudos recibidos: ", res.Data)
+		// Decodificar el string base64 recibido
+		datosCifrados, err := base64.StdEncoding.DecodeString(string(res.Data))
+		fmt.Println("Datos cifrados: ", datosCifrados)
+		// Definir la clave y el vector de inicialización (IV) que usaste en el cliente
+		key := encryption.ObtenerSHA256("Clave")
+		iv := encryption.ObtenerSHA256("<inicializar>")[:aes.BlockSize] // aes.BlockSize es de 16 bytes
+
+		// Descifrar el contenido cifrado
+		textoEnClaroDescifrado, err := encryption.DescifrarBytes(datosCifrados, key, iv)
+		if err != nil {
+			fmt.Println("Error al descifrar los datos en el cliente: ", err)
+		}
+		fmt.Println("Datos descifrados: ", textoEnClaroDescifrado)
+
+		// // Procesar el historial médico que llega descifrado -------------------- IMPLEMENTAR - IMPORTANTE PARA EL WAILS
+		// var historial Medico
+		// if err := json.Unmarshal([]byte(textoEnClaroDescifrado), &historial); err != nil {
+		// 	return api.Response{Success: false, Message: "Error al procesar los datos del historial"}
+		// }
+
+		//Por ahora usaremos "Clave" como key y <inicializar> como vector de inicialización (similar a la sal) para facilitar las cosas.
+		//En casos reales debe ser diferente para cada usuario y debe ser el mismo al cifrar y descifrar ----> tomar en cuenta luego al modificar
+
+		//-------------------------------
+		fmt.Println("Tus datos:", textoEnClaroDescifrado) //Por ahora sale en formato JSON mientras no se implemente una función de procesamiento
+	}
+}
+
 // Asignar o cambiar roles de usuario
 func (c *client) assignRoles() {
 	ui.ClearScreen()
@@ -474,6 +590,7 @@ func (c *client) loginUser() {
 		// Guardamos el token y el usuario actual
 		c.currentUser = username
 		c.authToken = res.Token
+		fmt.Println("Debugging en loginUser :) ::: c.currentUser = ", c.currentUser, " c.authToken = ", c.authToken)
 
 		// Si el rol es admin, mostramos el menú de administrador
 		if res.Data == "admin" {
@@ -489,6 +606,8 @@ func (c *client) loginUser() {
 func (c *client) fetchData() {
 	ui.ClearScreen()
 	fmt.Println("** Obtener datos del usuario **")
+
+	fmt.Println("Debugging en fetchData :) ::: c.currentUser = ", c.currentUser, " c.authToken = ", c.authToken)
 
 	// Chequeo básico de que haya sesión
 	if c.currentUser == "" || c.authToken == "" {

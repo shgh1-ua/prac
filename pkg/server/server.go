@@ -114,6 +114,8 @@ func (s *server) apiHandler(w http.ResponseWriter, r *http.Request) {
 		res = s.viewAllRecords(req)
 	case api.ActionDeleteUser:
 		res = s.deleteUser(req)
+	case api.ActionManageAccounts:
+		res = s.manageAccounts(req)
 	default:
 		res = api.Response{Success: false, Message: "Acción desconocida"}
 	}
@@ -192,8 +194,97 @@ func (s *server) registerUser(req api.Request) api.Response {
 		return api.Response{Success: false, Message: "Error al inicializar datos de usuario"}
 	}
 
-	return api.Response{Success: true, Message: "Usuario registrado"}
+	token := s.generateToken()
+	if err := s.db.Put("sessions", []byte(req.Username), []byte(token)); err != nil {
+		return api.Response{Success: false, Message: "Error al crear sesión"}
+	}
+
+	// Si el usuario es administrador, retornamos una respuesta indicando que debe mostrarse el menú de admin
+	if req.Role == "admin" {
+		return api.Response{
+			Success: true,
+			Message: "Usuario registrado y logueado como administrador",
+			Token:   token,
+			Data:    "admin", // Indicamos que es un administrador
+		}
+	}
+
+	// Para otros roles, simplemente retornamos el éxito del registro y login
+	return api.Response{
+		Success: true,
+		Message: "Usuario registrado y logueado",
+		Token:   token,
+	}
+	// return api.Response{Success: true, Message: "Usuario registrado"}
 }
+
+// Modificamos loginUser para validar contraseñas cifradas.
+func (s *server) loginUser(req api.Request) api.Response {
+	if req.Username == "" || req.Password == "" {
+		return api.Response{Success: false, Message: "Faltan credenciales"}
+	}
+
+	// Recuperar hash y salt del usuario
+	authData, err := s.db.Get("auth", []byte(req.Username))
+	if err != nil {
+		return api.Response{Success: false, Message: "Usuario no encontrado"}
+	}
+
+	// Separar hash y salt
+	parts := strings.Split(string(authData), ":")
+	fmt.Println("Parts (servidor): ", parts, " tamaño: ", len(parts))
+	if len(parts) != 3 {
+		return api.Response{Success: false, Message: "Datos de autenticación corruptos"}
+	}
+	hash, _ := base64.StdEncoding.DecodeString(parts[0])
+	salt, _ := base64.StdEncoding.DecodeString(parts[1])
+
+	// Verificar contraseña
+	if !verifyPassword(req.Password, hash, salt) {
+		return api.Response{Success: false, Message: "Credenciales inválidas"}
+	}
+
+	// Generar token y guardar en 'sessions'
+	token := s.generateToken()
+	if err := s.db.Put("sessions", []byte(req.Username), []byte(token)); err != nil {
+		return api.Response{Success: false, Message: "Error al crear sesión"}
+	}
+
+	// Si el usuario es administrador, retornamos una respuesta indicando que debe mostrarse el menú de admin
+	if req.Role == "admin" {
+		return api.Response{
+			Success: true,
+			Message: "Usuario registrado y logueado como administrador",
+			Token:   token,
+			Data:    "admin", // Indicamos que es un administrador
+		}
+	}
+
+	// Para otros roles, simplemente retornamos el éxito del registro y login
+	return api.Response{
+		Success: true,
+		Message: "Usuario registrado y logueado",
+		Token:   token,
+	}
+}
+
+// func (s *server) getRole (req api.Request) api.Response {
+// 	if req.Username == "" || req.Token == "" {
+// 		return api.Response{Success: false, Message: "Faltan credenciales"}
+// 	}
+// 	if !s.isTokenValid(req.Username, req.Token) {
+// 		return api.Response{Success: false, Message: "Token inválido o sesión expirada"}
+// 	}
+// 	// Obtener datos del usuario
+// 	authData, err := s.db.Get("auth", []byte(req.Data))
+// 	if err != nil {
+// 		return api.Response{Success: false, Message: "Usuario no encontrado"}
+// 	}
+
+// 	// Serializar los expedientes para enviarlos al cliente
+// 	data, _ := json.Marshal(records)
+// 	return api.Response{Success: true, Message: "Rol obtenido: ", Data: string(data)}
+// }
 
 // Añadimos funciones para las acciones del administrador.
 func (s *server) viewAllRecords(req api.Request) api.Response {
@@ -313,7 +404,7 @@ func (s *server) manageAccounts(req api.Request) api.Response {
 	}
 
 	// Obtener datos del usuario
-	authData, err := s.db.Get("auth", []byte(req.Data))
+	authData, err := s.db.Get("auth", []byte(req.Username))
 	if err != nil {
 		return api.Response{Success: false, Message: "Usuario no encontrado"}
 	}
@@ -379,46 +470,46 @@ func (s *server) viewStatsAndLogs(req api.Request) api.Response {
 	return api.Response{Success: true, Message: "Estadísticas obtenidas", Data: stats}
 }
 
-// Modificamos loginUser para validar contraseñas cifradas.
-func (s *server) loginUser(req api.Request) api.Response {
-	if req.Username == "" || req.Password == "" {
-		return api.Response{Success: false, Message: "Faltan credenciales"}
-	}
+// // Modificamos loginUser para validar contraseñas cifradas.
+// func (s *server) loginUser(req api.Request) api.Response {
+// 	if req.Username == "" || req.Password == "" {
+// 		return api.Response{Success: false, Message: "Faltan credenciales"}
+// 	}
 
-	// Recuperar hash, salt y rol del usuario
-	authData, err := s.db.Get("auth", []byte(req.Username))
-	if err != nil {
-		return api.Response{Success: false, Message: "Usuario no encontrado"}
-	}
+// 	// Recuperar hash, salt y rol del usuario
+// 	authData, err := s.db.Get("auth", []byte(req.Username))
+// 	if err != nil {
+// 		return api.Response{Success: false, Message: "Usuario no encontrado"}
+// 	}
 
-	// Separar hash, salt y rol
-	parts := strings.Split(string(authData), ":")
-	if len(parts) != 3 {
-		return api.Response{Success: false, Message: "Datos de autenticación corruptos"}
-	}
-	hash, _ := base64.StdEncoding.DecodeString(parts[0])
-	salt, _ := base64.StdEncoding.DecodeString(parts[1])
-	role := parts[2]
+// 	// Separar hash, salt y rol
+// 	parts := strings.Split(string(authData), ":")
+// 	if len(parts) != 3 {
+// 		return api.Response{Success: false, Message: "Datos de autenticación corruptos"}
+// 	}
+// 	hash, _ := base64.StdEncoding.DecodeString(parts[0])
+// 	salt, _ := base64.StdEncoding.DecodeString(parts[1])
+// 	role := parts[2]
 
-	// Verificar contraseña
-	if !verifyPassword(req.Password, hash, salt) {
-		return api.Response{Success: false, Message: "Credenciales inválidas"}
-	}
+// 	// Verificar contraseña
+// 	if !verifyPassword(req.Password, hash, salt) {
+// 		return api.Response{Success: false, Message: "Credenciales inválidas"}
+// 	}
 
-	// Generar token y guardar en 'sessions'
-	token := s.generateToken()
-	if err := s.db.Put("sessions", []byte(req.Username), []byte(token)); err != nil {
-		return api.Response{Success: false, Message: "Error al crear sesión"}
-	}
+// 	// Generar token y guardar en 'sessions'
+// 	token := s.generateToken()
+// 	if err := s.db.Put("sessions", []byte(req.Username), []byte(token)); err != nil {
+// 		return api.Response{Success: false, Message: "Error al crear sesión"}
+// 	}
 
-	// Retornar el rol junto con el token
-	return api.Response{
-		Success: true,
-		Message: "Login exitoso",
-		Token:   token,
-		Data:    role, // Retornamos el rol del usuario
-	}
-}
+// 	// Retornar el rol junto con el token
+// 	return api.Response{
+// 		Success: true,
+// 		Message: "Login exitoso",
+// 		Token:   token,
+// 		Data:    role, // Retornamos el rol del usuario
+// 	}
+// }
 
 // fetchData verifica el token y retorna el contenido del namespace 'userdata'.
 func (s *server) fetchData(req api.Request) api.Response {
