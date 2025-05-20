@@ -268,8 +268,6 @@ func (s *server) loginUser(req api.Request) api.Response {
 	}
 }
 
-=========
->>>>>>>>> Temporary merge branch 2
 // Añadimos funciones para las acciones del administrador.
 func (s *server) viewAllRecords(req api.Request) api.Response {
 	// Chequeo de credenciales
