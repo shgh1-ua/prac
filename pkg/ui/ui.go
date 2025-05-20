@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/eiannone/keyboard"
 )
 
 // PrintMenu muestra un menú y solicita al usuario que seleccione una opción.
@@ -36,6 +38,39 @@ func ReadInput(prompt string) string {
 	scanner.Scan()
 	return strings.TrimSpace(scanner.Text())
 }
+
+// ReadPassword solicita una contraseña al usuario y la oculta mientras se escribe.
+// ReadPassword solicita una contraseña mostrando * por cada carácter.
+func ReadPassword(prompt string) string {
+	fmt.Print(prompt + ": ")
+	password := ""
+	if err := keyboard.Open(); err != nil {
+		return ""
+	}
+	defer keyboard.Close()
+	for {
+		char, key, err := keyboard.GetKey()
+		if err != nil {
+			break
+		}
+		if key == keyboard.KeyEnter {
+			fmt.Println()
+			break
+		}
+		if key == keyboard.KeyBackspace || key == keyboard.KeyBackspace2 {
+			if len(password) > 0 {
+				password = password[:len(password)-1]
+				fmt.Print("\b \b")
+			}
+		} else if key == 0 {
+			password += string(char)
+			fmt.Print("*")
+		}
+	}
+	return password
+}
+
+// ...existing code...
 
 // Confirm solicita una confirmación Sí/No al usuario.
 func Confirm(message string) bool {
