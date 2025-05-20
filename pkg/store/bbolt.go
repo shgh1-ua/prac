@@ -35,7 +35,7 @@ func (s *BboltStore) Put(namespace string, key, value []byte) error { //antes de
 		}
 		return b.Put(key, value)
 	})
-}
+} // almcenar el value del put y lo encripto
 
 // Get recupera el valor de (key) en el bucket = namespace.
 func (s *BboltStore) Get(namespace string, key []byte) ([]byte, error) {
@@ -50,7 +50,7 @@ func (s *BboltStore) Get(namespace string, key []byte) ([]byte, error) {
 			return fmt.Errorf("clave no encontrada: %s", string(key))
 		}
 		return nil
-	})
+	}) // se desencripta antes de hacer el return
 	return val, err
 }
 

@@ -114,6 +114,8 @@ func (s *server) apiHandler(w http.ResponseWriter, r *http.Request) {
 		res = s.viewAllRecords(req)
 	case api.ActionDeleteUser:
 		res = s.deleteUser(req)
+	case api.ActionManageAccounts:
+		res = s.manageAccounts(req)
 	default:
 		res = api.Response{Success: false, Message: "Acción desconocida"}
 	}
@@ -192,7 +194,28 @@ func (s *server) registerUser(req api.Request) api.Response {
 		return api.Response{Success: false, Message: "Error al inicializar datos de usuario"}
 	}
 
-	return api.Response{Success: true, Message: "Usuario registrado"}
+	token := s.generateToken()
+	if err := s.db.Put("sessions", []byte(req.Username), []byte(token)); err != nil {
+		return api.Response{Success: false, Message: "Error al crear sesión"}
+	}
+
+	// Si el usuario es administrador, retornamos una respuesta indicando que debe mostrarse el menú de admin
+	if req.Role == "admin" {
+		return api.Response{
+			Success: true,
+			Message: "Usuario registrado y logueado como administrador",
+			Token:   token,
+			Data:    "admin", // Indicamos que es un administrador
+		}
+	}
+
+	// Para otros roles, simplemente retornamos el éxito del registro y login
+	return api.Response{
+		Success: true,
+		Message: "Usuario registrado y logueado",
+		Token:   token,
+	}
+	// return api.Response{Success: true, Message: "Usuario registrado"}
 }
 
 // Modificamos loginUser para validar contraseñas cifradas.
@@ -209,7 +232,8 @@ func (s *server) loginUser(req api.Request) api.Response {
 
 	// Separar hash y salt
 	parts := strings.Split(string(authData), ":")
-	if len(parts) != 2 {
+	fmt.Println("Parts (servidor): ", parts, " tamaño: ", len(parts))
+	if len(parts) != 3 {
 		return api.Response{Success: false, Message: "Datos de autenticación corruptos"}
 	}
 	hash, _ := base64.StdEncoding.DecodeString(parts[0])
@@ -244,6 +268,8 @@ func (s *server) loginUser(req api.Request) api.Response {
 	}
 }
 
+=========
+>>>>>>>>> Temporary merge branch 2
 // Añadimos funciones para las acciones del administrador.
 func (s *server) viewAllRecords(req api.Request) api.Response {
 	// Chequeo de credenciales
@@ -362,7 +388,7 @@ func (s *server) manageAccounts(req api.Request) api.Response {
 	}
 
 	// Obtener datos del usuario
-	authData, err := s.db.Get("auth", []byte(req.Data))
+	authData, err := s.db.Get("auth", []byte(req.Username))
 	if err != nil {
 		return api.Response{Success: false, Message: "Usuario no encontrado"}
 	}
