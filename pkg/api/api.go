@@ -19,6 +19,10 @@ const (
 	ActionAssignRole       = "assignRoles"      // Asignar o cambiar roles de usuario
 	ActionViewStatsAndLogs = "viewStatsAndLogs" // Acceder a estadísticas y logs del sistema
 	ActionViewAccount      = "viewAccount"      // Ver cuentas de usuario
+	ActionManageRecords    = "manageRecords"    // Ver, editar o eliminar expedientes médicos
+	ActionListRecordIDs    = "listRecordIDs"    // Listar IDs de expedientes médicos
+	ActionListUsers        = "listUsers"        // Listar usuarios
+
 )
 
 type Request struct {

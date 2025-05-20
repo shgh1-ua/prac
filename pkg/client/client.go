@@ -239,10 +239,8 @@ func (c *client) registerUser() {
 	fmt.Println("** Registro de usuario **")
 
 	username := ui.ReadInput("Nombre de usuario")
-	password := ui.ReadInput("Contraseña")
-
-	var role string
-	role = ui.ReadInput("Rol (administrador, médico, paciente)")
+	password := ui.ReadPassword("Contraseña")
+	role := ui.ReadInput("Rol (admin, doctor, paciente)")
 
 	if strings.Contains(role, "admin") {
 		role = "admin"
@@ -575,7 +573,7 @@ func (c *client) loginUser() {
 	fmt.Println("** Inicio de sesión **")
 
 	username := ui.ReadInput("Nombre de usuario")
-	password := ui.ReadInput("Contraseña")
+	password := ui.ReadPassword("Contraseña")
 
 	res := c.sendRequest(api.Request{
 		Action:   api.ActionLogin,
@@ -784,7 +782,7 @@ func (c *client) sendRequest(req api.Request) api.Response {
 	}
 	client := &http.Client{Transport: tr}
 
-	resp, err := client.Post("http://localhost:8080/api", "application/json", bytes.NewBuffer(jsonData))
+	resp, err := client.Post("https://localhost:10443/api", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		fmt.Println("Error al contactar con el servidor:", err)
 		return api.Response{Success: false, Message: "Error de conexión"}
@@ -796,4 +794,41 @@ func (c *client) sendRequest(req api.Request) api.Response {
 	var res api.Response
 	_ = json.Unmarshal(body, &res)
 	return res
+}
+
+func (c *client) listRecordIDs() {
+	ui.ClearScreen()
+	fmt.Println("** Ver IDs de expedientes médicos **")
+
+	// Enviar solicitud al servidor
+	res := c.sendRequest(api.Request{
+		Action:   api.ActionListRecordIDs,
+		Username: c.currentUser,
+		Token:    c.authToken,
+	})
+
+	// Mostrar la respuesta
+	fmt.Println("Éxito:", res.Success)
+	fmt.Println("Mensaje:", res.Message)
+	if res.Success {
+		fmt.Println("Expedientes:", res.Data)
+	}
+}
+
+func (c *client) listUsers() {
+	ui.ClearScreen()
+	fmt.Println("** Lista de usuarios existentes **")
+
+	res := c.sendRequest(api.Request{
+		Action:   api.ActionListUsers,
+		Username: c.currentUser,
+		Token:    c.authToken,
+	})
+
+	fmt.Println("Éxito:", res.Success)
+	fmt.Println("Mensaje:", res.Message)
+	if res.Success {
+		fmt.Println("Usuarios registrados:")
+		fmt.Println(res.Data)
+	}
 }
