@@ -8,7 +8,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"prac/pkg/api"
 	"prac/pkg/encryption"
@@ -77,7 +79,7 @@ func Run() error {
 	mux.Handle("/api", http.HandlerFunc(srv.apiHandler))
 
 	// Iniciamos el servidor HTTP.
-	err = http.ListenAndServe(":8080", mux)
+	err = http.ListenAndServeTLS(":10443", "login/cert.pem", "login/key.pem", mux)
 
 	return err
 }
@@ -114,6 +116,14 @@ func (s *server) apiHandler(w http.ResponseWriter, r *http.Request) {
 		res = s.viewAllRecords(req)
 	case api.ActionDeleteUser:
 		res = s.deleteUser(req)
+	case api.ActionManageRecords:
+		res = s.manageRecords(req)
+	case api.ActionListRecordIDs:
+		res = s.listRecordIDs(req)
+	case api.ActionViewStatsAndLogs:
+		res = s.viewStatsAndLogs(req)
+	case api.ActionListUsers:
+		res = s.listUsers(req)
 	default:
 		res = api.Response{Success: false, Message: "Acción desconocida"}
 	}
@@ -192,9 +202,10 @@ func (s *server) registerUser(req api.Request) api.Response {
 		return api.Response{Success: false, Message: "Error al inicializar datos de usuario"}
 	}
 
-	// Generar token automáticamente para el login
 	token := s.generateToken()
-	if err := s.db.Put("sessions", []byte(req.Username), []byte(token)); err != nil {
+	expiry := time.Now().Add(30 * time.Minute).Unix() // 30 minutos de validez
+	sessionData := fmt.Sprintf("%s:%d", token, expiry)
+	if err := s.db.Put("sessions", []byte(req.Username), []byte(sessionData)); err != nil {
 		return api.Response{Success: false, Message: "Error al crear sesión"}
 	}
 
@@ -218,7 +229,7 @@ func (s *server) registerUser(req api.Request) api.Response {
 
 // Añadimos funciones para las acciones del administrador.
 func (s *server) viewAllRecords(req api.Request) api.Response {
-	// Chequeo de credenciales
+	// Verificar credenciales
 	if req.Username == "" || req.Token == "" {
 		return api.Response{Success: false, Message: "Faltan credenciales"}
 	}
@@ -227,26 +238,41 @@ func (s *server) viewAllRecords(req api.Request) api.Response {
 	}
 
 	// Obtener todos los expedientes médicos
-	var records []Historial
+	var allRecords []Historial
 	err := s.db.ForEach("userdata", func(key, value []byte) error {
 		var userRecords []Historial
-		if err := json.Unmarshal(value, &userRecords); err != nil {
-			return err
+		if len(value) > 0 {
+			// Decodificar y descifrar los datos
+			datosCifrados, err := base64.StdEncoding.DecodeString(string(value))
+			if err != nil {
+				return fmt.Errorf("error al decodificar datos cifrados: %v", err)
+			}
+			key := encryption.ObtenerSHA256("Clave")
+			iv := encryption.ObtenerSHA256("<inicializar>")[:aes.BlockSize]
+			datosDescifrados, err := encryption.DescifrarBytes(datosCifrados, key, iv)
+			if err != nil {
+				return fmt.Errorf("error al descifrar datos: %v", err)
+			}
+
+			// Deserializar los expedientes
+			if err := json.Unmarshal([]byte(datosDescifrados), &userRecords); err != nil {
+				return fmt.Errorf("error al deserializar expedientes: %v", err)
+			}
+			allRecords = append(allRecords, userRecords...)
 		}
-		records = append(records, userRecords...)
 		return nil
 	})
 	if err != nil {
-		return api.Response{Success: false, Message: "Error al obtener expedientes médicos"}
+		return api.Response{Success: false, Message: "Error al obtener expedientes médicos: " + err.Error()}
 	}
 
 	// Serializar los expedientes para enviarlos al cliente
-	data, _ := json.Marshal(records)
+	data, _ := json.Marshal(allRecords)
 	return api.Response{Success: true, Message: "Expedientes médicos obtenidos", Data: string(data)}
 }
 
 func (s *server) manageRecords(req api.Request) api.Response {
-	// Chequeo de credenciales
+	// Verificar credenciales
 	if req.Username == "" || req.Token == "" {
 		return api.Response{Success: false, Message: "Faltan credenciales"}
 	}
@@ -268,37 +294,78 @@ func (s *server) manageRecords(req api.Request) api.Response {
 
 	var records []Historial
 	if len(rawData) > 0 {
-		if err := json.Unmarshal(rawData, &records); err != nil {
-			return api.Response{Success: false, Message: "Error al deserializar los expedientes"}
+		// Decodificar y descifrar los datos
+		datosCifrados, err := base64.StdEncoding.DecodeString(string(rawData))
+		if err != nil {
+			return api.Response{Success: false, Message: "Error al decodificar datos cifrados"}
+		}
+		key := encryption.ObtenerSHA256("Clave")
+		iv := encryption.ObtenerSHA256("<inicializar>")[:aes.BlockSize]
+		datosDescifrados, err := encryption.DescifrarBytes(datosCifrados, key, iv)
+		if err != nil {
+			return api.Response{Success: false, Message: "Error al descifrar datos"}
+		}
+
+		// Deserializar los expedientes
+		if err := json.Unmarshal([]byte(datosDescifrados), &records); err != nil {
+			return api.Response{Success: false, Message: "Error al deserializar expedientes"}
 		}
 	}
 
 	// Crear, editar o eliminar según el ID
-	if record.ID == "" {
+	switch req.Action {
+	case api.ActionCreateRecord:
 		// Crear nuevo expediente
 		record.ID = fmt.Sprintf("%d", len(records)+1)
 		records = append(records, record)
-	} else {
-		// Buscar y editar/eliminar
+	case api.ActionEditRecord:
+		// Editar expediente existente
+		updated := false
 		for i, r := range records {
 			if r.ID == record.ID {
-				if req.Action == api.ActionDeleteRecord {
-					records = append(records[:i], records[i+1:]...)
-				} else {
-					records[i] = record
-				}
+				records[i] = record
+				updated = true
 				break
 			}
 		}
+		if !updated {
+			return api.Response{Success: false, Message: "Expediente no encontrado"}
+		}
+	case api.ActionDeleteRecord:
+		// Eliminar expediente
+		deleted := false
+		for i, r := range records {
+			if r.ID == record.ID {
+				records = append(records[:i], records[i+1:]...)
+				deleted = true
+				break
+			}
+		}
+		if !deleted {
+			return api.Response{Success: false, Message: "Expediente no encontrado"}
+		}
+	default:
+		return api.Response{Success: false, Message: "Acción no válida"}
+	}
+
+	// Serializar y cifrar los expedientes actualizados
+	dataActualizada, err := json.Marshal(records)
+	if err != nil {
+		return api.Response{Success: false, Message: "Error al serializar los expedientes"}
+	}
+	key := encryption.ObtenerSHA256("Clave")
+	iv := encryption.ObtenerSHA256("<inicializar>")[:aes.BlockSize]
+	expedientesCifrados, err := encryption.CifrarString(string(dataActualizada), key, iv)
+	if err != nil {
+		return api.Response{Success: false, Message: "Error al cifrar los expedientes"}
 	}
 
 	// Guardar los expedientes actualizados
-	data, _ := json.Marshal(records)
-	if err := s.db.Put("userdata", []byte(req.Username), data); err != nil {
+	if err := s.db.Put("userdata", []byte(req.Username), []byte(expedientesCifrados)); err != nil {
 		return api.Response{Success: false, Message: "Error al guardar los expedientes"}
 	}
 
-	return api.Response{Success: true, Message: "Expedientes actualizados"}
+	return api.Response{Success: true, Message: "Expedientes actualizados correctamente"}
 }
 
 func (s *server) deleteUser(req api.Request) api.Response {
@@ -426,9 +493,10 @@ func (s *server) loginUser(req api.Request) api.Response {
 		return api.Response{Success: false, Message: "Credenciales inválidas"}
 	}
 
-	// Generar token y guardar en 'sessions'
 	token := s.generateToken()
-	if err := s.db.Put("sessions", []byte(req.Username), []byte(token)); err != nil {
+	expiry := time.Now().Add(30 * time.Minute).Unix() // 30 minutos de validez
+	sessionData := fmt.Sprintf("%s:%d", token, expiry)
+	if err := s.db.Put("sessions", []byte(req.Username), []byte(sessionData)); err != nil {
 		return api.Response{Success: false, Message: "Error al crear sesión"}
 	}
 
@@ -626,9 +694,178 @@ func (s *server) userExists(username string) (bool, error) {
 // isTokenValid comprueba que el token almacenado en 'sessions'
 // coincida con el token proporcionado.
 func (s *server) isTokenValid(username, token string) bool {
-	storedToken, err := s.db.Get("sessions", []byte(username))
+	stored, err := s.db.Get("sessions", []byte(username))
 	if err != nil {
 		return false
 	}
-	return string(storedToken) == token
+	parts := strings.Split(string(stored), ":")
+	if len(parts) != 2 {
+		return false
+	}
+	storedToken := parts[0]
+	expiry, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return false
+	}
+	if storedToken != token {
+		return false
+	}
+	if time.Now().Unix() > expiry {
+		// Token expirado, eliminar sesión
+		_ = s.db.Delete("sessions", []byte(username))
+		return false
+	}
+	return true
 }
+
+func (s *server) enumerateRecords(req api.Request) api.Response {
+	// Verificar credenciales
+	if req.Username == "" || req.Token == "" {
+		return api.Response{Success: false, Message: "Faltan credenciales"}
+	}
+	if !s.isTokenValid(req.Username, req.Token) {
+		return api.Response{Success: false, Message: "Token inválido o sesión expirada"}
+	}
+
+	// Obtener los expedientes del usuario
+	rawData, err := s.db.Get("userdata", []byte(req.Username))
+	if err != nil {
+		return api.Response{Success: false, Message: "Error al obtener expedientes del usuario"}
+	}
+
+	var records []Historial
+	if len(rawData) > 0 {
+		// Decodificar y descifrar los datos
+		datosCifrados, err := base64.StdEncoding.DecodeString(string(rawData))
+		if err != nil {
+			return api.Response{Success: false, Message: "Error al decodificar datos cifrados"}
+		}
+		key := encryption.ObtenerSHA256("Clave")
+		iv := encryption.ObtenerSHA256("<inicializar>")[:aes.BlockSize]
+		datosDescifrados, err := encryption.DescifrarBytes(datosCifrados, key, iv)
+		if err != nil {
+			return api.Response{Success: false, Message: "Error al descifrar datos"}
+		}
+
+		// Deserializar los expedientes
+		if err := json.Unmarshal([]byte(datosDescifrados), &records); err != nil {
+			return api.Response{Success: false, Message: "Error al deserializar expedientes"}
+		}
+	}
+
+	// Enumerar los expedientes y asignar IDs si no tienen
+	updated := false
+	for i := range records {
+		if records[i].ID == "" {
+			records[i].ID = fmt.Sprintf("%d", i+1) // Asignar un ID basado en el índice
+			updated = true
+		}
+	}
+
+	// Si se actualizaron los IDs, guardar los cambios
+	if updated {
+		dataActualizada, err := json.Marshal(records)
+		if err != nil {
+			return api.Response{Success: false, Message: "Error al serializar los expedientes"}
+		}
+		key := encryption.ObtenerSHA256("Clave")
+		iv := encryption.ObtenerSHA256("<inicializar>")[:aes.BlockSize]
+		expedientesCifrados, err := encryption.CifrarString(string(dataActualizada), key, iv)
+		if err != nil {
+			return api.Response{Success: false, Message: "Error al cifrar los expedientes"}
+		}
+		if err := s.db.Put("userdata", []byte(req.Username), []byte(expedientesCifrados)); err != nil {
+			return api.Response{Success: false, Message: "Error al guardar los expedientes actualizados"}
+		}
+	}
+
+	return api.Response{Success: true, Message: "Expedientes enumerados correctamente", Data: fmt.Sprintf("%d expedientes procesados", len(records))}
+}
+
+func (s *server) listRecordIDs(req api.Request) api.Response {
+	// Verificar credenciales
+	if req.Username == "" || req.Token == "" {
+		return api.Response{Success: false, Message: "Faltan credenciales"}
+	}
+	if !s.isTokenValid(req.Username, req.Token) {
+		return api.Response{Success: false, Message: "Token inválido o sesión expirada"}
+	}
+
+	// Obtener los expedientes del usuario
+	rawData, err := s.db.Get("userdata", []byte(req.Username))
+	if err != nil {
+		return api.Response{Success: false, Message: "Error al obtener expedientes del usuario"}
+	}
+
+	var records []Historial
+	if len(rawData) > 0 {
+		// Decodificar y descifrar los datos
+		datosCifrados, err := base64.StdEncoding.DecodeString(string(rawData))
+		if err != nil {
+			return api.Response{Success: false, Message: "Error al decodificar datos cifrados"}
+		}
+		key := encryption.ObtenerSHA256("Clave")
+		iv := encryption.ObtenerSHA256("<inicializar>")[:aes.BlockSize]
+		datosDescifrados, err := encryption.DescifrarBytes(datosCifrados, key, iv)
+		if err != nil {
+			return api.Response{Success: false, Message: "Error al descifrar datos"}
+		}
+
+		// Deserializar los expedientes
+		if err := json.Unmarshal([]byte(datosDescifrados), &records); err != nil {
+			return api.Response{Success: false, Message: "Error al deserializar expedientes"}
+		}
+	}
+
+	// Crear un array con los IDs de los expedientes
+	var ids []string
+	for _, record := range records {
+		ids = append(ids, record.ID)
+	}
+
+	// Formatear los IDs como un string
+	idList := strings.Join(ids, " ")
+
+	return api.Response{Success: true, Message: "Lista de IDs obtenida", Data: "expedientes: " + idList}
+}
+
+// ...existing code...
+
+// listUsers devuelve la lista de usuarios registrados (solo nombre de usuario).
+func (s *server) listUsers(req api.Request) api.Response {
+	// Chequeo de credenciales
+	if req.Username == "" || req.Token == "" {
+		return api.Response{Success: false, Message: "Faltan credenciales"}
+	}
+	if !s.isTokenValid(req.Username, req.Token) {
+		return api.Response{Success: false, Message: "Token inválido o sesión expirada"}
+	}
+
+	// Solo permitir a administradores
+	authData, err := s.db.Get("auth", []byte(req.Username))
+	if err != nil {
+		return api.Response{Success: false, Message: "No se pudo verificar el rol"}
+	}
+	parts := strings.Split(string(authData), ":")
+	if len(parts) != 3 || parts[2] != "admin" {
+		return api.Response{Success: false, Message: "Solo el administrador puede ver la lista de usuarios"}
+	}
+
+	// Listar usuarios
+	var users []string
+	err = s.db.ForEach("auth", func(key, value []byte) error {
+		users = append(users, string(key))
+		return nil
+	})
+	if err != nil {
+		return api.Response{Success: false, Message: "Error al obtener la lista de usuarios"}
+	}
+
+	return api.Response{
+		Success: true,
+		Message: "Lista de usuarios obtenida",
+		Data:    strings.Join(users, ", "),
+	}
+}
+
+// ...existing code...
