@@ -21,33 +21,6 @@ import (
 	"crypto/tls"
 )
 
-// Definimos una estructura para serializar los datos
-type Paciente struct {
-	IdPac     int    `json:"idpac"`
-	Nombre    string `json:"nombre"`
-	Apellidos string `json:"apellidos"`
-	Edad      int    `json:"edad"`
-	Email     string `json:"email"`
-	Username  string `json:"username"`
-	Password  string `json:"password"`
-}
-
-type Medico struct {
-	IdMed     int    `json:"idmed"`
-	Nombre    string `json:"nombre"`
-	Apellidos string `json:"apellidos"`
-	Username  string `json:"username"`
-	Password  string `json:"password"`
-}
-
-type HistorialMedico struct {
-	ID          string `json:"id"`
-	Nombre      string `json:"nombre"`
-	Edad        int    `json:"edad"`
-	Diagnostico string `json:"diagnostico"`
-	Tratamiento string `json:"tratamiento"`
-}
-
 // client estructura interna no exportada que controla
 // el estado de la sesión (usuario, token) y logger.
 type client struct {
@@ -104,15 +77,15 @@ func (c *client) runLoop() {
 		} else { //Hay que ver el rol del usuario para saber qué opciones se les va a mostrar
 			// adminMenu se declara de nuevo antes o despues no recuerdo cuando  -----> recordar quitarlo que con ponerlo en runLoop basta
 			title = fmt.Sprintf("Menú (%s)", c.currentUser)
-			res := c.sendRequest(api.Request{
+			res := c.sendRequest(api.Request{ //ManageAccounts obtiene los datos de currentUser
 				Action:   api.ActionManageAccounts,
 				Username: c.currentUser,
 				Token:    c.authToken,
 			})
 			fmt.Println("Datos que hay del usuario: c.authToken: ", c.authToken, " c.currentUser ", c.currentUser, " c.log ", c.log)
-			fmt.Println("Datos obtenidos del servidor: ", res)
+			// fmt.Println("Datos obtenidos del servidor: ", res)
 
-			////Esta serie if-else se puede hacer con un for ---->(eficiencia de codigo?)
+			////Esta serie if-else se puede hacer con un for iterando sobre array de roles---->(eficiencia de codigo?)
 			if strings.Contains(res.Data, "admin") {
 				c.adminMenu()
 			} else if strings.Contains(res.Data, "medic") {
@@ -135,7 +108,6 @@ func (c *client) patientMenu() {
 		"Ver expedientes asociados",
 		"Actualizar datos personales",
 		"Cerrar sesión",
-		"Salir",
 	}
 
 	choice := ui.PrintMenu(title, options)
@@ -145,10 +117,8 @@ func (c *client) patientMenu() {
 	case 1:
 		c.fetchData()
 	case 2:
-		c.updateData()
+		c.updateDataSinCifrar()
 	case 3:
-		c.logoutUser()
-	case 4:
 		c.logoutUser()
 	default:
 		fmt.Println("Opción no válida, Intente de nuevo")
@@ -181,7 +151,7 @@ func (c *client) medicMenu() {
 	case 3:
 		c.manageRecords()
 	case 4:
-		c.logoutUser()
+		c.updateDataSinCifrar()
 	case 5:
 		c.logoutUser()
 	case 6:
@@ -238,24 +208,40 @@ func (c *client) registerUser() {
 	ui.ClearScreen()
 	fmt.Println("** Registro de usuario **")
 
+	//Pedimos datos personales (son los que se van a cifrar y los que debemos mantener resguardados)
+	name := ui.ReadInput("Nombre")
+	surnames := ui.ReadInput("Apellidos")
+	email := ui.ReadInput("E-mail") //Importante añadir comprobación de datos introducidos
+	age := ui.ReadInt("Edad")
+	usuario := api.User{
+		Nombre:    name,
+		Apellidos: surnames,
+		Email:     email,
+		Edad:      age,
+	}
+	data, _ := json.Marshal(usuario)
+
 	username := ui.ReadInput("Nombre de usuario")
 	password := ui.ReadPassword("Contraseña")
 	role := ui.ReadInput("Rol (admin, doctor, paciente)")
 
+	//Normalizamos el rol del usuario para que se guarde de forma uniforme en la base de datos
 	if strings.Contains(role, "admin") {
 		role = "admin"
 	} else if strings.Contains(role, "medic") || strings.Contains(role, "doc") {
 		role = "medic"
-	} else if strings.Contains(role, "pa") {
+	} else if strings.Contains(role, "pac") || strings.Contains(role, "pat") {
 		role = "patient"
 	} else {
 		fmt.Println("El rol introducido no pudo ser identificado correctamente, pruebe evitando introducir tildes o cambiando de rol")
 		return
 	}
+
 	res := c.sendRequest(api.Request{
 		Action:   api.ActionRegister,
 		Username: username,
 		Password: password,
+		Data:     string(data),
 		Role:     role,
 	})
 
@@ -308,13 +294,12 @@ func (c *client) manageRecords() {
 	case 1:
 		// Crear expediente
 		nombre := ui.ReadInput("Nombre del paciente")
-		edad := ui.ReadInt("Edad del paciente")
+		// edad := ui.ReadInt("Edad del paciente")
 		diagnostico := ui.ReadInput("Diagnóstico")
 		tratamiento := ui.ReadInput("Tratamiento")
 
-		historial := HistorialMedico{
+		historial := api.Historial{
 			Nombre:      nombre,
-			Edad:        edad,
 			Diagnostico: diagnostico,
 			Tratamiento: tratamiento,
 		}
@@ -334,14 +319,12 @@ func (c *client) manageRecords() {
 		// Editar expediente
 		id := ui.ReadInput("ID del expediente a editar")
 		nombre := ui.ReadInput("Nuevo nombre del paciente")
-		edad := ui.ReadInt("Nueva edad del paciente")
 		diagnostico := ui.ReadInput("Nuevo diagnóstico")
 		tratamiento := ui.ReadInput("Nuevo tratamiento")
 
-		historial := HistorialMedico{
+		historial := api.Historial{
 			ID:          id,
 			Nombre:      nombre,
-			Edad:        edad,
 			Diagnostico: diagnostico,
 			Tratamiento: tratamiento,
 		}
@@ -370,26 +353,6 @@ func (c *client) manageRecords() {
 		fmt.Println("Éxito:", res.Success)
 		fmt.Println("Mensaje:", res.Message)
 	}
-}
-
-// Registrar usuarios (médicos, pacientes, administradores)
-func (c *client) registerUser1() {
-	ui.ClearScreen()
-	fmt.Println("** Registrar usuario **")
-
-	username := ui.ReadInput("Nombre de usuario")
-	password := ui.ReadInput("Contraseña")
-	role := ui.ReadInput("Rol (admin, doctor, paciente)")
-
-	res := c.sendRequest(api.Request{
-		Action:   api.ActionRegister,
-		Username: username,
-		Password: password,
-		Role:     role,
-	})
-
-	fmt.Println("Éxito:", res.Success)
-	fmt.Println("Mensaje:", res.Message)
 }
 
 // Eliminar cualquier usuario
@@ -630,19 +593,19 @@ func (c *client) fetchData() {
 			fmt.Println("No se recibieron datos en el cliente")
 		}
 		fmt.Println("Datos crudos recibidos: ", res.Data)
-		// Decodificar el string base64 recibido
-		datosCifrados, err := base64.StdEncoding.DecodeString(string(res.Data))
-		fmt.Println("Datos cifrados: ", datosCifrados)
-		// Definir la clave y el vector de inicialización (IV) que usaste en el cliente
-		key := encryption.ObtenerSHA256("Clave")
-		iv := encryption.ObtenerSHA256("<inicializar>")[:aes.BlockSize] // aes.BlockSize es de 16 bytes
+		// // Decodificar el string base64 recibido
+		// datosCifrados, err := base64.StdEncoding.DecodeString(string(res.Data))
+		// fmt.Println("Datos cifrados: ", datosCifrados)
+		// // Definir la clave y el vector de inicialización (IV) que usaste en el cliente
+		// key := encryption.ObtenerSHA256("Clave")
+		// iv := encryption.ObtenerSHA256("<inicializar>")[:aes.BlockSize] // aes.BlockSize es de 16 bytes
 
-		// Descifrar el contenido cifrado
-		textoEnClaroDescifrado, err := encryption.DescifrarBytes(datosCifrados, key, iv)
-		if err != nil {
-			fmt.Println("Error al descifrar los datos en el cliente: ", err)
-		}
-		fmt.Println("Datos descifrados: ", textoEnClaroDescifrado)
+		// // Descifrar el contenido cifrado
+		// textoEnClaroDescifrado, err := encryption.DescifrarBytes(datosCifrados, key, iv)
+		// if err != nil {
+		// 	fmt.Println("Error al descifrar los datos en el cliente: ", err)
+		// }
+		// fmt.Println("Datos descifrados: ", textoEnClaroDescifrado)
 
 		// // Procesar el historial médico que llega descifrado -------------------- IMPLEMENTAR - IMPORTANTE PARA EL WAILS
 		// var historial Medico
@@ -654,7 +617,7 @@ func (c *client) fetchData() {
 		//En casos reales debe ser diferente para cada usuario y debe ser el mismo al cifrar y descifrar ----> tomar en cuenta luego al modificar
 
 		//-------------------------------
-		fmt.Println("Tus datos:", textoEnClaroDescifrado) //Por ahora sale en formato JSON mientras no se implemente una función de procesamiento
+		// fmt.Println("Tus datos:", textoEnClaroDescifrado) //Por ahora sale en formato JSON mientras no se implemente una función de procesamiento
 	}
 }
 
@@ -682,13 +645,12 @@ func (c *client) updateData() {
 	// newData := ui.ReadInput("Introduce el contenido del historial que desees almacenar")
 	fmt.Println("Introduce el contenido del nuevo historial médico que desees almacenar:")
 	nombre := ui.ReadInput("Nombre")
-	edad := ui.ReadInt("Edad")
+	// edad := ui.ReadInt("Edad")
 	diagnostico := ui.ReadInput("Diagnostico")
 	tratamiento := ui.ReadInput("Tratamiento")
 
-	historial := HistorialMedico{
+	historial := api.Historial{
 		Nombre:      nombre,
-		Edad:        edad,
 		Diagnostico: diagnostico,
 		Tratamiento: tratamiento,
 	}
@@ -737,6 +699,47 @@ func (c *client) updateData() {
 		Username: c.currentUser,
 		Token:    c.authToken,
 		Data:     datosCifrados,
+	})
+
+	fmt.Println("Éxito:", res.Success)
+	fmt.Println("Mensaje:", res.Message)
+}
+
+func (c *client) updateDataSinCifrar() {
+	ui.ClearScreen()
+	fmt.Println("** Actualizar datos del usuario **")
+
+	if c.currentUser == "" || c.authToken == "" {
+		fmt.Println("No estás logueado. Inicia sesión primero.")
+		return
+	}
+
+	// Leemos la nueva Data
+	// newData := ui.ReadInput("Introduce el contenido del historial que desees almacenar")
+	fmt.Println("Introduce el contenido del nuevo historial médico que desees almacenar:")
+	nombre := ui.ReadInput("Nombre")
+	// edad := ui.ReadInt("Edad")
+	diagnostico := ui.ReadInput("Diagnostico")
+	tratamiento := ui.ReadInput("Tratamiento")
+
+	historial := api.Historial{
+		Nombre:      nombre,
+		Diagnostico: diagnostico,
+		Tratamiento: tratamiento,
+	}
+
+	newData, err := json.Marshal(historial)
+	if err != nil { // manejar error
+		fmt.Println("Error al serializar los datos", err)
+		return
+	}
+
+	// Enviar el contenido cifrado
+	res := c.sendRequest(api.Request{
+		Action:   api.ActionUpdateData,
+		Username: c.currentUser,
+		Token:    c.authToken,
+		Data:     string(newData),
 	})
 
 	fmt.Println("Éxito:", res.Success)

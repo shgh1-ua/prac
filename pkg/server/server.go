@@ -30,33 +30,6 @@ type server struct {
 	tokenCounter int64       // contador para generar tokens
 }
 
-// Definimos una estructura para serializar los datos
-type Paciente struct {
-	IdPac     int    `json:"idpac"`
-	Nombre    string `json:"nombre"`
-	Apellidos string `json:"apellidos"`
-	Edad      int    `json:"edad"`
-	Email     string `json:"email"`
-	Username  string `json:"username"`
-	Password  string `json:"password"`
-}
-
-type Medico struct {
-	IdMed     int    `json:"idmed"`
-	Nombre    string `json:"nombre"`
-	Apellidos string `json:"apellidos"`
-	Username  string `json:"username"`
-	Password  string `json:"password"`
-}
-
-type Historial struct {
-	ID          string `json:"id"`
-	Nombre      string `json:"nombre"`
-	Edad        int    `json:"edad"`
-	Diagnostico string `json:"diagnostico"`
-	Tratamiento string `json:"tratamiento"`
-}
-
 // Run inicia la base de datos y arranca el servidor HTTP.
 func Run() error {
 	// Abrimos la base de datos usando el motor bbolt
@@ -103,13 +76,13 @@ func (s *server) apiHandler(w http.ResponseWriter, r *http.Request) {
 	var res api.Response
 	switch req.Action {
 	case api.ActionRegister:
-		res = s.registerUser(req)
+		res = s.registerUserCambiado(req)
 	case api.ActionLogin:
 		res = s.loginUser(req)
 	case api.ActionFetchData:
 		res = s.fetchData(req)
 	case api.ActionUpdateData:
-		res = s.updateData(req)
+		res = s.updateDataSinCifrar(req)
 	case api.ActionLogout:
 		res = s.logoutUser(req)
 	case api.ActionViewAllRecords:
@@ -222,12 +195,87 @@ func (s *server) registerUser(req api.Request) api.Response {
 	// return api.Response{Success: true, Message: "Usuario registrado"}
 }
 
+// Modificamos registerUser para incluir roles.
+func (s *server) registerUserCambiado(req api.Request) api.Response {
+	if req.Username == "" || req.Password == "" || req.Role == "" {
+		return api.Response{Success: false, Message: "Faltan credenciales o rol"}
+	}
+
+	// Verificar si el usuario ya existe
+	exists, err := s.userExists(req.Username)
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return api.Response{Success: false, Message: "Error al verificar usuario"}
+	}
+	if exists {
+		return api.Response{Success: false, Message: "El usuario ya existe"}
+	}
+
+	// Generar hash y salt para la contraseña
+	hash, salt, err := hashPassword(req.Password)
+	if err != nil {
+		return api.Response{Success: false, Message: "Error al procesar contraseña"}
+	}
+
+	//Derivar y establecer clave maestra a partir de contraseña y salt
+	masterKey := encryption.DeriveMasterKey([]byte(req.Password), []byte(salt))
+	s.db.(*store.BboltStore).SetMasterKey(masterKey)
+
+	// Almacenar hash, salt y rol en el namespace 'auth'
+	authData := map[string]string{
+		"hash": base64.StdEncoding.EncodeToString(hash),
+		"salt": base64.StdEncoding.EncodeToString(salt),
+		"role": req.Role,
+		"data": req.Data,
+	}
+	// authData := +":" + +":" + +":" + req.Data
+	authDataBytes, err := json.Marshal(authData)
+	if err != nil {
+		return api.Response{Success: false, Message: "Error al serializar datos del usuario"}
+	}
+	if err := s.db.Put("auth", []byte(req.Username), authDataBytes); err != nil {
+		return api.Response{Success: false, Message: "Error al guardar credenciales"}
+	}
+
+	// Crear entrada vacía en 'userdata'
+	if err := s.db.Put("userdata", []byte(req.Username), []byte("")); err != nil {
+		return api.Response{Success: false, Message: "Error al inicializar datos de usuario"}
+	}
+
+	token := s.generateToken()
+	expiry := time.Now().Add(30 * time.Minute).Unix() // 30 minutos de validez
+	sessionData := fmt.Sprintf("%s:%d", token, expiry)
+	fmt.Println("sessionData: ", sessionData)
+	fmt.Println("username: ", req.Username)
+	if err := s.db.Put("sessions", []byte(req.Username), []byte(sessionData)); err != nil {
+		return api.Response{Success: false, Message: "Error al crear sesión"}
+	}
+
+	// Si el usuario es administrador, retornamos una respuesta indicando que debe mostrarse el menú de admin
+	if req.Role == "admin" {
+		return api.Response{
+			Success: true,
+			Message: "Usuario registrado y logueado como administrador",
+			Token:   token,
+			Data:    "admin", // Indicamos que es un administrador
+		}
+	}
+
+	// Para otros roles, simplemente retornamos el éxito del registro y login
+	return api.Response{
+		Success: true,
+		Message: "Usuario registrado y logueado",
+		Token:   token,
+	}
+	// return api.Response{Success: true, Message: "Usuario registrado"}
+}
+
 // Modificamos loginUser para validar contraseñas cifradas.
 func (s *server) loginUser(req api.Request) api.Response {
 	if req.Username == "" || req.Password == "" {
 		return api.Response{Success: false, Message: "Faltan credenciales"}
 	}
-
+	fmt.Println("Pasa por login del servidor")
 	// Recuperar hash y salt del usuario
 	authData, err := s.db.Get("auth", []byte(req.Username))
 	if err != nil {
@@ -235,6 +283,7 @@ func (s *server) loginUser(req api.Request) api.Response {
 	}
 
 	// Separar hash y salt
+	fmt.Println("Las putas datas son: AuthData ", string(authData))
 	parts := strings.Split(string(authData), ":")
 	fmt.Println("Parts (servidor): ", parts, " tamaño: ", len(parts))
 	if len(parts) != 3 {
@@ -247,6 +296,10 @@ func (s *server) loginUser(req api.Request) api.Response {
 	if !verifyPassword(req.Password, hash, salt) {
 		return api.Response{Success: false, Message: "Credenciales inválidas"}
 	}
+
+	//Derivar y establecer clave maestra a partir de contraseña y salt
+	masterKey := encryption.DeriveMasterKey([]byte(req.Password), []byte(salt))
+	s.db.(*store.BboltStore).SetMasterKey(masterKey)
 
 	// Generar token y guardar en 'sessions'
 	token := s.generateToken()
@@ -285,9 +338,9 @@ func (s *server) viewAllRecords(req api.Request) api.Response {
 	}
 
 	// Obtener todos los expedientes médicos
-	var allRecords []Historial
+	var allRecords []api.Historial
 	err := s.db.ForEach("userdata", func(key, value []byte) error {
-		var userRecords []Historial
+		var userRecords []api.Historial
 		if len(value) > 0 {
 			// Decodificar y descifrar los datos
 			datosCifrados, err := base64.StdEncoding.DecodeString(string(value))
@@ -328,7 +381,7 @@ func (s *server) manageRecords(req api.Request) api.Response {
 	}
 
 	// Procesar la solicitud (crear, editar o eliminar)
-	var record Historial
+	var record api.Historial
 	if err := json.Unmarshal([]byte(req.Data), &record); err != nil {
 		return api.Response{Success: false, Message: "Error al procesar los datos del expediente"}
 	}
@@ -339,7 +392,7 @@ func (s *server) manageRecords(req api.Request) api.Response {
 		return api.Response{Success: false, Message: "Error al obtener expedientes del usuario"}
 	}
 
-	var records []Historial
+	var records []api.Historial
 	if len(rawData) > 0 {
 		// Decodificar y descifrar los datos
 		datosCifrados, err := base64.StdEncoding.DecodeString(string(rawData))
@@ -502,7 +555,7 @@ func (s *server) viewStatsAndLogs(req api.Request) api.Response {
 		return nil
 	})
 	_ = s.db.ForEach("userdata", func(key, value []byte) error {
-		var records []Historial
+		var records []api.Historial
 		if err := json.Unmarshal(value, &records); err == nil {
 			recordCount += len(records)
 		}
@@ -600,12 +653,12 @@ func (s *server) updateData(req api.Request) api.Response {
 	}
 
 	// Procesar el historial médico que llega descifrado --------> se hace para agregar el id del historial -----> perdemos un poco de seguridad porque el admin del servidor lo podrà ver, pero se puede modificar el contenido
-	var historial Historial
+	var historial api.Historial
 	if err := json.Unmarshal([]byte(textoEnClaroDescifrado), &historial); err != nil {
 		return api.Response{Success: false, Message: "Error al procesar los datos del historial"}
 	}
 	//-----------------------------------
-	var expedientesNew []Historial //Donde guardaremos todos los expedientes a serializar y cifrar
+	var expedientesNew []api.Historial //Donde guardaremos todos los expedientes a serializar y cifrar
 
 	// Obtenemos los datos asociados al usuario desde 'userdata' en la base de datos
 	data, err := s.db.Get("userdata", []byte(req.Username))
@@ -661,6 +714,66 @@ func (s *server) updateData(req api.Request) api.Response {
 	return api.Response{Success: true, Message: "Datos de usuario actualizados"}
 }
 
+func (s *server) updateDataSinCifrar(req api.Request) api.Response {
+	// Chequeo de credenciales
+	if req.Username == "" || req.Token == "" {
+		return api.Response{Success: false, Message: "Faltan credenciales"}
+	}
+	if !s.isTokenValid(req.Username, req.Token) {
+		return api.Response{Success: false, Message: "Token inválido o sesión expirada"}
+	}
+
+	// Obtenemos nuevo dato del cliente
+	// Comprobar si el cliente está enviando datos cifrados
+	if req.Data == "" {
+		return api.Response{Success: false, Message: "El usuario no tiene ningún dato guardado"}
+	}
+
+	// Procesar el historial médico que llega descifrado --------> se hace para agregar el id del historial -----> perdemos un poco de seguridad porque el admin del servidor lo podrà ver, pero se puede modificar el contenido
+	var historial api.Historial
+	if err := json.Unmarshal([]byte(req.Data), &historial); err != nil {
+		return api.Response{Success: false, Message: "Error al procesar los datos del historial"}
+	}
+	//-----------------------------------
+	var expedientesNew []api.Historial //Donde guardaremos todos los expedientes a serializar y cifrar
+
+	// Obtenemos los datos asociados al usuario desde 'userdata' en la base de datos
+	data, err := s.db.Get("userdata", []byte(req.Username))
+	if err != nil {
+		return api.Response{Success: false, Message: "Error al obtener datos del usuario"}
+	}
+
+	if data != nil && len(data) != 0 { // Si existe, deserializar
+		// var expedientes []string
+		// fmt.Println("Data: ", data)
+		// fmt.Println("len(data): ", len(data))
+		// Decodificar el string base64 recibido
+		expedientesRaw := data
+		fmt.Println("expedientes: ", expedientesRaw)
+		//---------------------
+		// Escribimos el nuevo dato en 'userdata'
+		err := json.Unmarshal([]byte(expedientesRaw), &expedientesNew)
+		if err != nil {
+			return api.Response{Success: false, Message: "Error al deserializar los expedientes guardados del paciente"}
+		}
+		// Agregar el nuevo expediente al slice
+		expedientesNew = append(expedientesNew, historial)
+		fmt.Println("expedientes+nuevo: ", expedientesNew)
+	} else { //Si no hay ningun expediente simplemente lo añade
+		expedientesNew = append(expedientesNew, historial)
+	}
+
+	// Serializar el array actualizado
+	dataActualizada, err := json.Marshal(expedientesNew)
+	if err != nil {
+		return api.Response{Success: false, Message: "Error al serializar los expedientes del paciente más el nuevo"}
+	}
+	if err := s.db.Put("userdata", []byte(req.Username), []byte(dataActualizada)); err != nil {
+		return api.Response{Success: false, Message: "Error al actualizar datos del usuario"}
+	}
+	return api.Response{Success: true, Message: "Datos de usuario actualizados"}
+}
+
 // logoutUser borra la sesión en 'sessions', invalidando el token.
 func (s *server) logoutUser(req api.Request) api.Response {
 	// Chequeo de credenciales
@@ -675,6 +788,10 @@ func (s *server) logoutUser(req api.Request) api.Response {
 	if err := s.db.Delete("sessions", []byte(req.Username)); err != nil {
 		return api.Response{Success: false, Message: "Error al cerrar sesión"}
 	}
+
+	//Eliminar clave maestra y clave de archivo
+	s.db.(*store.BboltStore).SetMasterKey(nil)
+	// s.db.(*store.BboltStore).SetFileKey(nil)
 
 	return api.Response{Success: true, Message: "Sesión cerrada correctamente"}
 }
@@ -738,7 +855,7 @@ func (s *server) enumerateRecords(req api.Request) api.Response {
 		return api.Response{Success: false, Message: "Error al obtener expedientes del usuario"}
 	}
 
-	var records []Historial
+	var records []api.Historial
 	if len(rawData) > 0 {
 		// Decodificar y descifrar los datos
 		datosCifrados, err := base64.StdEncoding.DecodeString(string(rawData))
@@ -802,7 +919,7 @@ func (s *server) listRecordIDs(req api.Request) api.Response {
 		return api.Response{Success: false, Message: "Error al obtener expedientes del usuario"}
 	}
 
-	var records []Historial
+	var records []api.Historial
 	if len(rawData) > 0 {
 		// Decodificar y descifrar los datos
 		datosCifrados, err := base64.StdEncoding.DecodeString(string(rawData))
@@ -841,6 +958,7 @@ func (s *server) listUsers(req api.Request) api.Response {
 	// Chequeo de credenciales
 	if req.Username == "" || req.Token == "" {
 		return api.Response{Success: false, Message: "Faltan credenciales"}
+
 	}
 	if !s.isTokenValid(req.Username, req.Token) {
 		return api.Response{Success: false, Message: "Token inválido o sesión expirada"}

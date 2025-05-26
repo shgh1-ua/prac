@@ -40,3 +40,21 @@ type Response struct {
 	Token   string `json:"token,omitempty"` // Token de autenticación (opcional)
 	Data    string `json:"data,omitempty"`  // Datos adicionales (opcional)
 }
+
+// Los structs a partir de aquí tendrán en su mayoría omitempty para poder construir la aplicación
+type User struct {
+	IdPac     int    `json:"idpac,omitempty"`
+	Nombre    string `json:"nombre,omitempty"`
+	Apellidos string `json:"apellidos,omitempty"`
+	Edad      int    `json:"edad,omitempty"`
+	Email     string `json:"email,omitempty"`
+	Username  string `json:"username,omitempty"`
+}
+
+type Historial struct {
+	ID     string `json:"id,omitempty"`
+	Nombre string `json:"nombre,omitempty"`
+	// Edad        int    `json:"edad,omitempty"`
+	Diagnostico string `json:"diagnostico,omitempty"`
+	Tratamiento string `json:"tratamiento,omitempty"`
+}
