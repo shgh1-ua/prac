@@ -81,7 +81,7 @@ func (s *BboltStore) GetFileKey() ([]byte, error) {
 
 func putAuthData(s *BboltStore, value []byte) ([]byte, error) {
 	// Separar hash y salt
-	fmt.Println("Las putas datas son: Value AuthData ", string(value))
+	// fmt.Println("Las putas datas son: Value AuthData ", string(value))
 	// var parts [4]string //tamaño 4 por: hash, salt, role y authData
 	var authData map[string]string
 
@@ -89,17 +89,28 @@ func putAuthData(s *BboltStore, value []byte) ([]byte, error) {
 		return nil, fmt.Errorf("error al deserializar expedientes: %v", err)
 	}
 
-	fmt.Println("Probando el unmarshal: ", authData)
+	// fmt.Println("Probando el unmarshal: ", authData)
 
-	if len(authData) != 4 {
-		return nil, fmt.Errorf("Datos de autenticación corruptos")
+	if _, ok := authData["hash"]; !ok {
+		return nil, fmt.Errorf("falta 'hash' en los datos de autenticación")
 	}
+	if _, ok := authData["salt"]; !ok {
+		return nil, fmt.Errorf("falta 'salt' en los datos de autenticación")
+	}
+	if _, ok := authData["role"]; !ok {
+		return nil, fmt.Errorf("falta 'role' en los datos de autenticación")
+	}
+	if _, ok := authData["data"]; !ok {
+		return nil, fmt.Errorf("falta 'data' en los datos de autenticación")
+	}
+
 	// parts := strings.Split(string(value), ":")
 	// fmt.Println("Parts (servidor): ", parts, " tamaño: ", len(parts))
-	hash, _ := base64.StdEncoding.DecodeString(authData["hash"])
-	salt, _ := base64.StdEncoding.DecodeString(authData["salt"])
+	hash, _ := authData["hash"]
+	salt, _ := authData["salt"]
 	data := authData["role"] + authData["data"] //parts[2] = role y parts[3] = authData
 
+	fmt.Println("Hash: ", string(hash), " dalt: ", string(salt))
 	// Generamos una clave de archivo aleatoria para cifrar este valor
 	fileKey, err := encryption.GenerateFileKey()
 	if err != nil {
@@ -134,7 +145,6 @@ func putAuthData(s *BboltStore, value []byte) ([]byte, error) {
 }
 
 func putUserData(s *BboltStore, value []byte) ([]byte, error) {
-	fmt.Println("Las malditas datas son: Value userData ", string(value))
 	data := string(value) //Array de Expedientes en JSON
 
 	// Generamos una clave de archivo aleatoria para cifrar este valor
@@ -168,7 +178,6 @@ func putUserData(s *BboltStore, value []byte) ([]byte, error) {
 }
 
 func putSessionsData(s *BboltStore, value []byte) ([]byte, error) {
-	fmt.Println("Las mamawebas datas son: Value sessions ", string(value))
 	data := string(value) //Array de Expedientes en JSON
 
 	// Generamos una clave de archivo aleatoria para cifrar este valor
@@ -261,6 +270,8 @@ func (s *BboltStore) Get(namespace string, key []byte) ([]byte, error) {
 	// fmt.Println("Data: ", string(val))
 	// Parseamos el JSON
 	var data struct {
+		Hash          string `json:"hash,omitempty"`
+		Salt          string `json:"salt,omitempty"`
 		EncryptedData string `json:"encryptedData"`
 		FileKey       string `json:"fileKey"`
 		Nonce         string `json:"nonce"`

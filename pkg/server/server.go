@@ -17,6 +17,7 @@ import (
 	"prac/pkg/store"
 
 	"crypto/aes"
+	"crypto/hmac"
 	"crypto/rand"
 	"encoding/base64"
 
@@ -123,13 +124,21 @@ func hashPassword(password string) (hash, salt []byte, err error) {
 	return hash, salt, err
 }
 
-// verifyPassword compara una contraseña con su hash y salt.
+// // verifyPassword compara una contraseña con su hash y salt.
+// func verifyPassword(password string, hash, salt []byte) bool {
+// 	newHash, err := scrypt.Key([]byte(password), salt, 16384, 8, 1, 32)
+// 	if err != nil {
+// 		return false
+// 	}
+// 	return string(newHash) == string(hash)
+// }
+
 func verifyPassword(password string, hash, salt []byte) bool {
 	newHash, err := scrypt.Key([]byte(password), salt, 16384, 8, 1, 32)
 	if err != nil {
 		return false
 	}
-	return string(newHash) == string(hash)
+	return hmac.Equal(newHash, hash)
 }
 
 // registerUser registra un nuevo usuario, si no existe.
@@ -212,7 +221,9 @@ func (s *server) registerUserCambiado(req api.Request) api.Response {
 	}
 
 	// Generar hash y salt para la contraseña
+	fmt.Println("La contraseña es: ", req.Password)
 	hash, salt, err := hashPassword(req.Password)
+	fmt.Println("hash: ", hash, " salt: ", salt)
 	if err != nil {
 		return api.Response{Success: false, Message: "Error al procesar contraseña"}
 	}
@@ -230,6 +241,7 @@ func (s *server) registerUserCambiado(req api.Request) api.Response {
 	}
 	// authData := +":" + +":" + +":" + req.Data
 	authDataBytes, err := json.Marshal(authData)
+	fmt.Println("authData server: ", authData)
 	if err != nil {
 		return api.Response{Success: false, Message: "Error al serializar datos del usuario"}
 	}
@@ -275,7 +287,6 @@ func (s *server) loginUser(req api.Request) api.Response {
 	if req.Username == "" || req.Password == "" {
 		return api.Response{Success: false, Message: "Faltan credenciales"}
 	}
-	fmt.Println("Pasa por login del servidor")
 	// Recuperar hash y salt del usuario
 	authData, err := s.db.Get("auth", []byte(req.Username))
 	if err != nil {
@@ -283,23 +294,54 @@ func (s *server) loginUser(req api.Request) api.Response {
 	}
 
 	// Separar hash y salt
-	fmt.Println("Las putas datas son: AuthData ", string(authData))
-	parts := strings.Split(string(authData), ":")
-	fmt.Println("Parts (servidor): ", parts, " tamaño: ", len(parts))
-	if len(parts) != 3 {
+	var data map[string]string
+
+	if err := json.Unmarshal(authData, &data); err != nil {
+		return api.Response{Success: false, Message: "Error al obtener datos de autenticación"}
+	}
+
+	fmt.Println("AuthData: ", data)
+	// fmt.Println("Tamaño: ", len(data))
+	if len(data) != 5 {
 		return api.Response{Success: false, Message: "Datos de autenticación corruptos"}
 	}
-	hash, _ := base64.StdEncoding.DecodeString(parts[0])
-	salt, _ := base64.StdEncoding.DecodeString(parts[1])
+	hash, _ := base64.StdEncoding.DecodeString(data["hash"])
+	salt, _ := base64.StdEncoding.DecodeString(data["salt"])
+	fileKey := data["fileKey"]
+	nonce := data["nonce"]
+	encryptedData := data["encryptedData"]
 
 	// Verificar contraseña
-	if !verifyPassword(req.Password, hash, salt) {
+	if !verifyPassword(req.Password, []byte(hash), []byte(salt)) {
 		return api.Response{Success: false, Message: "Credenciales inválidas"}
 	}
 
-	//Derivar y establecer clave maestra a partir de contraseña y salt
+	// Derivar y establecer clave maestra
 	masterKey := encryption.DeriveMasterKey([]byte(req.Password), []byte(salt))
 	s.db.(*store.BboltStore).SetMasterKey(masterKey)
+
+	fileKeyDecoded, err := base64.StdEncoding.DecodeString(fileKey)
+	if err != nil {
+		return api.Response{Success: false, Message: "Clave de archivo corrupta (base64)"}
+	}
+	decryptedFileKey, err := encryption.DecryptFileKey(fileKeyDecoded, []byte(nonce), masterKey)
+
+	if err != nil {
+		return api.Response{Success: false, Message: "Error al descifrar clave de archivo"}
+	}
+	fmt.Println("Tamaño clave descifrada:", len(decryptedFileKey)) // Debe ser 32
+
+	// Usar directamente la clave descifrada
+	encryptedBytes, err := base64.StdEncoding.DecodeString(encryptedData)
+	if err != nil {
+		return api.Response{Success: false, Message: "Datos cifrados corruptos"}
+	}
+
+	decryptedData, err := encryption.VerifyAndDecryptStr(string(encryptedBytes), decryptedFileKey)
+
+	if err != nil {
+		return api.Response{Success: false, Message: "Error al descifrar datos del usuario"}
+	}
 
 	// Generar token y guardar en 'sessions'
 	token := s.generateToken()
@@ -309,21 +351,14 @@ func (s *server) loginUser(req api.Request) api.Response {
 		return api.Response{Success: false, Message: "Error al crear sesión"}
 	}
 
-	// Si el usuario es administrador, retornamos una respuesta indicando que debe mostrarse el menú de admin
-	if req.Role == "admin" {
-		return api.Response{
-			Success: true,
-			Message: "Usuario registrado y logueado como administrador",
-			Token:   token,
-			Data:    "admin", // Indicamos que es un administrador
-		}
-	}
-
 	// Para otros roles, simplemente retornamos el éxito del registro y login
+	role := decryptedData
+	fmt.Println("reqrole = ", role)
 	return api.Response{
 		Success: true,
-		Message: "Usuario registrado y logueado",
+		Message: "Usuario logueado",
 		Token:   token,
+		Data:    req.Role,
 	}
 }
 

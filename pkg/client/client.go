@@ -199,8 +199,6 @@ func (c *client) adminMenu() {
 	default:
 		fmt.Println("Opción no existente, Intente de nuevo")
 	}
-	ui.Pause("Pulsa [Enter] para continuar...")
-
 }
 
 // Modificamos el registro para incluir el rol.
@@ -551,13 +549,25 @@ func (c *client) loginUser() {
 		// Guardamos el token y el usuario actual
 		c.currentUser = username
 		c.authToken = res.Token
-		fmt.Println("Debugging en loginUser :) ::: c.currentUser = ", c.currentUser, " c.authToken = ", c.authToken)
+		// fmt.Println("Debugging en loginUser :) ::: c.currentUser = ", c.currentUser, " c.authToken = ", c.authToken)
 
+		println("Res.Data: ", res.Data)
 		// Si el rol es admin, mostramos el menú de administrador
-		if res.Data == "admin" {
+		switch res.Data {
+		case "admin":
 			fmt.Println("Iniciando sesión como administrador...")
 			ui.Pause("Pulsa [Enter] para continuar...")
 			c.adminMenu()
+		case "medic":
+			fmt.Println("Iniciando sesión como médico...")
+			ui.Pause("Pulsa [Enter] para continuar...")
+			c.medicMenu()
+		case "patient":
+			fmt.Println("Iniciando sesión como paciente...")
+			ui.Pause("Pulsa [Enter] para continuar...")
+			c.patientMenu()
+		default:
+			fmt.Println("Hubo un problema iniciando sesión")
 		}
 	}
 }
