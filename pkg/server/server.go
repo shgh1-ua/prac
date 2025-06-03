@@ -4,6 +4,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -282,6 +283,22 @@ func (s *server) registerUserCambiado(req api.Request) api.Response {
 	// return api.Response{Success: true, Message: "Usuario registrado"}
 }
 
+func extractRole(data string) (string, error) {
+	idx := strings.Index(data, "{")
+	if idx == -1 {
+		return "", errors.New("formato inválido: no se encontró '{'")
+	}
+
+	rol := data[:idx]
+
+	switch rol {
+	case "admin", "medic", "patient":
+		return rol, nil
+	default:
+		return "", errors.New("rol inválido detectado")
+	}
+}
+
 // Modificamos loginUser para validar contraseñas cifradas.
 func (s *server) loginUser(req api.Request) api.Response {
 	if req.Username == "" || req.Password == "" {
@@ -308,7 +325,7 @@ func (s *server) loginUser(req api.Request) api.Response {
 	hash, _ := base64.StdEncoding.DecodeString(data["hash"])
 	salt, _ := base64.StdEncoding.DecodeString(data["salt"])
 	fileKey := data["fileKey"]
-	nonce := data["nonce"]
+	nonce, _ := base64.StdEncoding.DecodeString(data["nonce"])
 	encryptedData := data["encryptedData"]
 
 	// Verificar contraseña
@@ -324,12 +341,12 @@ func (s *server) loginUser(req api.Request) api.Response {
 	if err != nil {
 		return api.Response{Success: false, Message: "Clave de archivo corrupta (base64)"}
 	}
-	decryptedFileKey, err := encryption.DecryptFileKey(fileKeyDecoded, []byte(nonce), masterKey)
+	decryptedFileKey, err := encryption.DecryptFileKey(fileKeyDecoded, nonce, masterKey)
 
 	if err != nil {
 		return api.Response{Success: false, Message: "Error al descifrar clave de archivo"}
 	}
-	fmt.Println("Tamaño clave descifrada:", len(decryptedFileKey)) // Debe ser 32
+	fmt.Println("Tamaño clave descifrada:", len(decryptedFileKey), " Clave de archivo descifrada: ", decryptedFileKey) // Debe ser 32
 
 	// Usar directamente la clave descifrada
 	encryptedBytes, err := base64.StdEncoding.DecodeString(encryptedData)
@@ -337,9 +354,11 @@ func (s *server) loginUser(req api.Request) api.Response {
 		return api.Response{Success: false, Message: "Datos cifrados corruptos"}
 	}
 
-	decryptedData, err := encryption.VerifyAndDecryptStr(string(encryptedBytes), decryptedFileKey)
+	decryptedData, err := encryption.VerifyAndDecryptBytes(encryptedBytes, decryptedFileKey)
+	fmt.Println("Decrypted data = ", decryptedData)
 
 	if err != nil {
+		fmt.Println("Error: ", err)
 		return api.Response{Success: false, Message: "Error al descifrar datos del usuario"}
 	}
 
@@ -352,13 +371,17 @@ func (s *server) loginUser(req api.Request) api.Response {
 	}
 
 	// Para otros roles, simplemente retornamos el éxito del registro y login
-	role := decryptedData
+	role, err := extractRole(decryptedData)
 	fmt.Println("reqrole = ", role)
+	if err != nil {
+		return api.Response{Success: false, Message: "Error al obtener rol del usuario"}
+	}
+
 	return api.Response{
 		Success: true,
 		Message: "Usuario logueado",
 		Token:   token,
-		Data:    req.Role,
+		Data:    role,
 	}
 }
 

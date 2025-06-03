@@ -116,6 +116,7 @@ func putAuthData(s *BboltStore, value []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error al generar fileKey: %v", err)
 	}
+	fmt.Println("Tamaño clave descifrada:", len(fileKey), " Clave de archivo descifrada: ", fileKey) // Debe ser 32
 
 	// Ciframos la clave de archivo usando la clave maestra
 	encryptedFileKey, fileKeyNonce, err := encryption.EncryptFileKey(fileKey, s.masterKey)

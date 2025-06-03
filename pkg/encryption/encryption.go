@@ -277,6 +277,8 @@ func EncryptAndSignStr(plainText string, key []byte) (string, error) {
 func VerifyAndDecryptStr(encoded string, key []byte) (string, error) {
 	//Primero decodificamos la string
 	datos, err := base64.StdEncoding.DecodeString(encoded)
+	fmt.Println("Error: ", err)
+
 	if err != nil {
 		return "", err
 	}
@@ -306,6 +308,38 @@ func VerifyAndDecryptStr(encoded string, key []byte) (string, error) {
 	}
 
 	//Descifrar
+	plaintext := make([]byte, len(ciphertext))
+	stream.XORKeyStream(plaintext, ciphertext)
+
+	return string(plaintext), nil
+}
+
+func VerifyAndDecryptBytes(datos []byte, key []byte) (string, error) {
+	// Comprobamos estado de los datos
+	if len(datos) < aes.BlockSize+sha256.Size {
+		return "", errors.New("Datos corruptos o incompletos para contener un nonce válido")
+	}
+
+	// Separar nonce
+	// , ciphertext y HMAC
+	nonce := datos[:aes.BlockSize]
+	ciphertext := datos[aes.BlockSize : len(datos)-sha256.Size]
+	signReceived := datos[len(datos)-sha256.Size:]
+
+	// Verificar HMAC
+	mac := hmac.New(sha256.New, key)
+	mac.Write(datos[:len(datos)-sha256.Size])
+	expectedMAC := mac.Sum(nil)
+
+	if !hmac.Equal(signReceived, expectedMAC) {
+		return "", errors.New("firma HMAC inválida: los datos han sido modificados")
+	}
+
+	stream, err := obtenerAESconCTR(key, nonce)
+	if err != nil {
+		return "", err
+	}
+
 	plaintext := make([]byte, len(ciphertext))
 	stream.XORKeyStream(plaintext, ciphertext)
 
