@@ -18,9 +18,27 @@ import (
 	"prac/pkg/client"
 	"prac/pkg/server"
 	"prac/pkg/ui"
+
+	"github.com/joho/godotenv"
 )
 
+var jwtSecret []byte //La clave que se usará para firmar los tokens JWT
+
 func main() {
+
+	// Cargar las variables desde el .env
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error al cargar .env")
+	}
+
+	// Leer la clave
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		log.Fatal("JWT_SECRET no está definida")
+	}
+	jwtSecret = []byte(secret)
+	log.Println("Clave secreta cargada correctamente.")
 
 	// Creamos un logger con prefijo 'main' para identificar
 	// los mensajes en la consola.

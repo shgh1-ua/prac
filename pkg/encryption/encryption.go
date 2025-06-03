@@ -277,8 +277,6 @@ func EncryptAndSignStr(plainText string, key []byte) (string, error) {
 func VerifyAndDecryptStr(encoded string, key []byte) (string, error) {
 	//Primero decodificamos la string
 	datos, err := base64.StdEncoding.DecodeString(encoded)
-	fmt.Println("Error: ", err)
-
 	if err != nil {
 		return "", err
 	}

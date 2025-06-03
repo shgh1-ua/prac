@@ -22,6 +22,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/scrypt"
 )
 
@@ -111,6 +112,71 @@ func (s *server) generateToken() string {
 		return ""
 	}
 	return base64.URLEncoding.EncodeToString(tokenBytes) // Codifica el token en base64 URL-safe
+}
+
+// GenerateJWT genera un token JWT firmado con jwtSecret que expira en 30 minutos
+func GenerateJWT(username, role string) (string, error) {
+	// Obtener el secreto desde la variable de entorno
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		return "", fmt.Errorf("Error al generar token") // puedes definir este error personalizado si quieres
+	}
+
+	// Crear las claims (datos dentro del token)
+	claims := jwt.MapClaims{
+		"username": username,
+		"role":     role,
+		"exp":      time.Now().Add(30 * time.Minute).Unix(),
+		"iat":      time.Now().Unix(),
+	}
+
+	// Crear token
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
+	// Firmar token con la clave secreta
+	signedToken, err := token.SignedString([]byte(secret))
+	if err != nil {
+		return "", err
+	}
+
+	return signedToken, nil
+}
+
+// Claims personalizadas (opcional, pero aquí usamos MapClaims por flexibilidad)
+type Claims struct {
+	Username string
+	Role     string
+	jwt.RegisteredClaims
+}
+
+// ValidateJWT valida el token JWT y devuelve el username y role si es válido
+func ValidateJWT(tokenStr string) (string, string, error) {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		return "", "", errors.New("JWT_SECRET no está configurado")
+	}
+
+	// Parsear el token y validar firma y expiración
+	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+		// Verificar que se use el método de firma esperado
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("método de firma inválido")
+		}
+		return []byte(secret), nil
+	})
+
+	if err != nil || !token.Valid {
+		return "", "", errors.New("token inválido o expirado")
+	}
+
+	// Extraer claims
+	if claims, ok := token.Claims.(jwt.MapClaims); ok {
+		username, _ := claims["username"].(string)
+		role, _ := claims["role"].(string)
+		return username, role, nil
+	}
+
+	return "", "", errors.New("no se pudieron leer las claims")
 }
 
 // Para que sea mejor le metem,os jwt y echa de expiracion
@@ -214,7 +280,6 @@ func (s *server) registerUserCambiado(req api.Request) api.Response {
 	// Verificar si el usuario ya existe
 	exists, err := s.userExists(req.Username)
 	if err != nil {
-		fmt.Println("Error: ", err)
 		return api.Response{Success: false, Message: "Error al verificar usuario"}
 	}
 	if exists {
@@ -358,7 +423,6 @@ func (s *server) loginUser(req api.Request) api.Response {
 	fmt.Println("Decrypted data = ", decryptedData)
 
 	if err != nil {
-		fmt.Println("Error: ", err)
 		return api.Response{Success: false, Message: "Error al descifrar datos del usuario"}
 	}
 
