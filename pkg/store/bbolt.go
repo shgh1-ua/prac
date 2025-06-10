@@ -108,7 +108,7 @@ func putAuthData(s *BboltStore, value []byte) ([]byte, error) {
 	// fmt.Println("Parts (servidor): ", parts, " tamaño: ", len(parts))
 	hash, _ := authData["hash"]
 	salt, _ := authData["salt"]
-	data := authData["role"] + authData["data"] //parts[2] = role y parts[3] = authData
+	data := authData["data"] //parts[2] = role y parts[3] = authData
 
 	fmt.Println("Hash: ", string(hash), " dalt: ", string(salt))
 	// Generamos una clave de archivo aleatoria para cifrar este valor
@@ -134,6 +134,8 @@ func putAuthData(s *BboltStore, value []byte) ([]byte, error) {
 	todo := map[string]string{
 		"hash":          string(hash),
 		"salt":          string(salt),
+		"role":          authData["role"],
+		"data":          authData["data"],
 		"encryptedData": datosCifrados,
 		"fileKey":       base64.StdEncoding.EncodeToString(encryptedFileKey),
 		"nonce":         base64.StdEncoding.EncodeToString(fileKeyNonce),
@@ -267,6 +269,11 @@ func (s *BboltStore) Get(namespace string, key []byte) ([]byte, error) {
 
 	if err != nil {
 		return nil, err
+	}
+
+	// Si es el bucket "auth", devuelve el JSON crudo (no descifrado)
+	if namespace == "auth" {
+		return val, nil
 	}
 	// fmt.Println("Data: ", string(val))
 	// Parseamos el JSON

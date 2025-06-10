@@ -3,26 +3,27 @@
 package api
 
 const (
-	ActionRegister         = "register"         // Registrar un usuario
-	ActionLogin            = "login"            // Iniciar sesión
-	ActionFetchData        = "fetchData"        // Obtener datos privados
-	ActionUpdateData       = "updateData"       // Actualizar datos privados
-	ActionLogout           = "logout"           // Cerrar sesión
-	ActionViewAllRecords   = "viewAllRecords"   // Ver todos los expedientes médicos
-	ActionCreateRecord     = "createRecord"     // Crear expedientes médicos
-	ActionEditRecord       = "editRecord"       // Editar expedientes médicos
-	ActionDeleteRecord     = "deleteRecord"     // Eliminar expedientes médicos
-	ActionDeleteUser       = "deleteUser"       // Eliminar cualquier usuario
-	ActionManageAccounts   = "manageAccounts"   // Ver, editar o eliminar cuentas
-	ActionEditAccount      = "editAccount"      // Editar cuentas de usuario
-	ActionDeleteAccount    = "deleteAccount"    // Eliminar cuentas de usuario
-	ActionAssignRole       = "assignRoles"      // Asignar o cambiar roles de usuario
-	ActionViewStatsAndLogs = "viewStatsAndLogs" // Acceder a estadísticas y logs del sistema
-	ActionViewAccount      = "viewAccount"      // Ver cuentas de usuario
-	ActionManageRecords    = "manageRecords"    // Ver, editar o eliminar expedientes médicos
-	ActionListRecordIDs    = "listRecordIDs"    // Listar IDs de expedientes médicos
-	ActionListUsers        = "listUsers"        // Listar usuarios
-
+	ActionRegister              = "register"              // Registrar un usuario
+	ActionLogin                 = "login"                 // Iniciar sesión
+	ActionFetchData             = "fetchData"             // Obtener datos privados
+	ActionUpdateData            = "updateData"            // Actualizar datos privados
+	ActionLogout                = "logout"                // Cerrar sesión
+	ActionViewAllRecords        = "viewAllRecords"        // Ver todos los expedientes médicos
+	ActionCreateRecord          = "createRecord"          // Crear expedientes médicos
+	ActionEditRecord            = "editRecord"            // Editar expedientes médicos
+	ActionDeleteRecord          = "deleteRecord"          // Eliminar expedientes médicos
+	ActionDeleteUser            = "deleteUser"            // Eliminar cualquier usuario
+	ActionManageAccounts        = "manageAccounts"        // Ver, editar o eliminar cuentas
+	ActionEditAccount           = "editAccount"           // Editar cuentas de usuario
+	ActionDeleteAccount         = "deleteAccount"         // Eliminar cuentas de usuario
+	ActionAssignRole            = "assignRoles"           // Asignar o cambiar roles de usuario
+	ActionViewStatsAndLogs      = "viewStatsAndLogs"      // Acceder a estadísticas y logs del sistema
+	ActionViewAccount           = "viewAccount"           // Ver cuentas de usuario
+	ActionManageRecords         = "manageRecords"         // Ver, editar o eliminar expedientes médicos
+	ActionListRecordIDs         = "listRecordIDs"         // Listar IDs de expedientes médicos
+	ActionListUsers             = "listUsers"             // Listar usuarios
+	ActionDeleteAllUsersAndData = "deleteAllUsersAndData" // Eliminar todos los usuarios y datos
+	ActionViewLogs              = "viewLogs"              // Ver logs del sistema
 )
 
 type Request struct {
