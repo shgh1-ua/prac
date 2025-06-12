@@ -611,7 +611,7 @@ func (s *server) manageAccounts(req api.Request) api.Response {
 		targetUser = req.Data
 	}
 
-	//ERRRROOOORRRR AQUIIIIIIIII
+	//ERRRROOOORRRR AQUIIIIIIIIIIIIII
 	// Obtener datos del usuario
 	authData, err := s.db.Get("auth", []byte(targetUser))
 	if err != nil {
