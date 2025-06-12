@@ -247,11 +247,11 @@ func (c *client) registerUser() {
 		fmt.Println("Debugging en registerUser :) ::: c.currentUser = ", c.currentUser, " c.authToken = ", c.authToken)
 
 		// Si el rol es admin, mostramos el menú de administrador
-		if res.Data == "admin" {
-			fmt.Println("Iniciando sesión como administrador...")
-			ui.Pause("Pulsa [Enter] para continuar...")
-			c.adminMenu()
-		}
+		// if res.Data == "admin" {
+		// 	fmt.Println("Iniciando sesión como administrador...")
+		// 	ui.Pause("Pulsa [Enter] para continuar...")
+		// 	c.adminMenu()
+		// }
 	}
 }
 
@@ -274,6 +274,195 @@ func (c *client) viewAllRecords() {
 	}
 }
 
+func (c *client) createRecord() {
+	// Crear expediente
+	username := ui.ReadInput("¿A qué usuario (paciente) quieres añadirle un expediente médico? (Introduce el nombre de usuario)")
+
+	// Consultar nombre y apellidos del usuario
+	res := c.sendRequest(api.Request{
+		Action:   api.ActionManageAccounts,
+		Username: c.currentUser,
+		Token:    c.authToken,
+		Data:     username,
+	})
+
+	if !res.Success {
+		fmt.Println("No se pudo obtener la cuenta:", res.Message)
+		return
+	}
+
+	var user struct {
+		Nombre    string `json:"nombre"`
+		Apellidos string `json:"apellidos"`
+		Role      string `json:"role"`
+	}
+	if err := json.Unmarshal([]byte(res.Data), &user); err != nil {
+		fmt.Println("Error al procesar los datos del usuario:", err)
+		return
+	}
+	if user.Role != "patient" {
+		fmt.Println("Solo se pueden añadir expedientes a usuarios con rol 'patient'.")
+		return
+	}
+
+	fmt.Printf("Añadir expediente para usuario %s (%s %s)\n", username, user.Nombre, user.Apellidos)
+	diagnostico := ui.ReadInput("Añada un diagnóstico")
+	tratamiento := ui.ReadInput("Añada un tratamiento")
+	observaciones := ui.ReadInput("Añada observaciones")
+
+	record := map[string]string{
+		"diagnostico":   diagnostico,
+		"tratamiento":   tratamiento,
+		"observaciones": observaciones,
+	}
+	data, _ := json.Marshal(record)
+
+	res2 := c.sendRequest(api.Request{
+		Action:   api.ActionCreateRecord,
+		Username: username,
+		Token:    c.authToken,
+		Data:     string(data),
+	})
+
+	fmt.Println("Éxito:", res2.Success)
+	fmt.Println("Mensaje:", res2.Message)
+}
+
+func (c *client) editRecord() {
+	// Modificar expediente
+	username := ui.ReadInput("¿De qué usuario quieres modificar un expediente? (Introduce el nombre de usuario)")
+
+	// Consultar nombre, apellidos y expedientes del usuario
+	res := c.sendRequest(api.Request{
+		Action:   api.ActionManageAccounts,
+		Username: c.currentUser,
+		Token:    c.authToken,
+		Data:     username,
+	})
+	if !res.Success {
+		fmt.Println("No se pudo obtener la cuenta:", res.Message)
+		return
+	}
+	var user struct {
+		Nombre    string `json:"nombre"`
+		Apellidos string `json:"apellidos"`
+		Role      string `json:"role"`
+	}
+	if err := json.Unmarshal([]byte(res.Data), &user); err != nil {
+		fmt.Println("Error al procesar los datos del usuario:", err)
+		return
+	}
+
+	// Obtener expedientes del usuario
+	resExp := c.sendRequest(api.Request{
+		Action:   api.ActionListRecordIDs,
+		Username: username,
+		Token:    c.authToken,
+	})
+	if !resExp.Success {
+		fmt.Println("No se pudieron obtener los expedientes:", resExp.Message)
+		return
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(resExp.Data), &ids); err != nil {
+		fmt.Println("Error al procesar los IDs de expedientes:", err)
+		return
+	}
+	if len(ids) == 0 {
+		fmt.Println("Este usuario no tiene expedientes.")
+		return
+	}
+	fmt.Printf("El usuario %s (%s %s) tiene estos expedientes: %v\n", username, user.Nombre, user.Apellidos, ids)
+	id := ui.ReadInput("¿Cuál deseas modificar? Introduce el número de expediente")
+
+	// Pedir nuevos datos
+	diagnostico := ui.ReadInput("Nuevo diagnóstico")
+	tratamiento := ui.ReadInput("Nuevo tratamiento")
+	observaciones := ui.ReadInput("Nuevas observaciones")
+
+	record := map[string]string{
+		"id":            id,
+		"diagnostico":   diagnostico,
+		"tratamiento":   tratamiento,
+		"observaciones": observaciones,
+	}
+	data, _ := json.Marshal(record)
+
+	res2 := c.sendRequest(api.Request{
+		Action:   api.ActionEditRecord,
+		Username: username,
+		Token:    c.authToken,
+		Data:     string(data),
+	})
+
+	fmt.Println("Éxito:", res2.Success)
+	fmt.Println("Mensaje:", res2.Message)
+}
+
+func (c *client) deleteRecord() {
+	// Eliminar expediente
+	username := ui.ReadInput("¿De qué usuario quieres eliminar un expediente? (Introduce el nombre de usuario)")
+
+	// Consultar nombre, apellidos y expedientes del usuario
+	res := c.sendRequest(api.Request{
+		Action:   api.ActionManageAccounts,
+		Username: c.currentUser,
+		Token:    c.authToken,
+		Data:     username,
+	})
+	if !res.Success {
+		fmt.Println("No se pudo obtener la cuenta:", res.Message)
+		return
+	}
+	var user struct {
+		Nombre    string `json:"nombre"`
+		Apellidos string `json:"apellidos"`
+		Role      string `json:"role"`
+	}
+	if err := json.Unmarshal([]byte(res.Data), &user); err != nil {
+		fmt.Println("Error al procesar los datos del usuario:", err)
+		return
+	}
+
+	// Obtener expedientes del usuario
+	resExp := c.sendRequest(api.Request{
+		Action:   api.ActionListRecordIDs,
+		Username: username,
+		Token:    c.authToken,
+	})
+	if !resExp.Success {
+		fmt.Println("No se pudieron obtener los expedientes:", resExp.Message)
+		return
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(resExp.Data), &ids); err != nil {
+		fmt.Println("Error al procesar los IDs de expedientes:", err)
+		return
+	}
+	if len(ids) == 0 {
+		fmt.Println("Este usuario no tiene expedientes.")
+		return
+	}
+	fmt.Printf("El usuario %s (%s %s) tiene estos expedientes: %v\n", username, user.Nombre, user.Apellidos, ids)
+	id := ui.ReadInput("¿Qué expediente deseas eliminar? Introduce el número de expediente")
+
+	confirm := ui.Confirm(fmt.Sprintf("¿Estás seguro de que deseas eliminar el expediente %s de %s (%s %s)?", id, username, user.Nombre, user.Apellidos))
+	if !confirm {
+		fmt.Println("Operación cancelada.")
+		return
+	}
+
+	res2 := c.sendRequest(api.Request{
+		Action:   api.ActionDeleteRecord,
+		Username: username,
+		Token:    c.authToken,
+		Data:     id,
+	})
+
+	fmt.Println("Éxito:", res2.Success)
+	fmt.Println("Mensaje:", res2.Message)
+}
+
 // Crear, editar o eliminar expedientes
 func (c *client) manageRecords() {
 	ui.ClearScreen()
@@ -284,190 +473,11 @@ func (c *client) manageRecords() {
 
 	switch choice {
 	case 1:
-		// Crear expediente
-		username := ui.ReadInput("¿A qué usuario (paciente) quieres añadirle un expediente médico? (Introduce el nombre de usuario)")
-
-		// Consultar nombre y apellidos del usuario
-		res := c.sendRequest(api.Request{
-			Action:   api.ActionManageAccounts,
-			Username: c.currentUser,
-			Token:    c.authToken,
-			Data:     username,
-		})
-
-		if !res.Success {
-			fmt.Println("No se pudo obtener la cuenta:", res.Message)
-			return
-		}
-
-		var user struct {
-			Nombre    string `json:"nombre"`
-			Apellidos string `json:"apellidos"`
-			Role      string `json:"role"`
-		}
-		if err := json.Unmarshal([]byte(res.Data), &user); err != nil {
-			fmt.Println("Error al procesar los datos del usuario:", err)
-			return
-		}
-		if user.Role != "patient" {
-			fmt.Println("Solo se pueden añadir expedientes a usuarios con rol 'patient'.")
-			return
-		}
-
-		fmt.Printf("Añadir expediente para usuario %s (%s %s)\n", username, user.Nombre, user.Apellidos)
-		diagnostico := ui.ReadInput("Añada un diagnóstico")
-		tratamiento := ui.ReadInput("Añada un tratamiento")
-		observaciones := ui.ReadInput("Añada observaciones")
-
-		record := map[string]string{
-			"diagnostico":   diagnostico,
-			"tratamiento":   tratamiento,
-			"observaciones": observaciones,
-		}
-		data, _ := json.Marshal(record)
-
-		res2 := c.sendRequest(api.Request{
-			Action:   api.ActionCreateRecord,
-			Username: username,
-			Token:    c.authToken,
-			Data:     string(data),
-		})
-
-		fmt.Println("Éxito:", res2.Success)
-		fmt.Println("Mensaje:", res2.Message)
-
+		c.createRecord()
 	case 2:
-		// Modificar expediente
-		username := ui.ReadInput("¿De qué usuario quieres modificar un expediente? (Introduce el nombre de usuario)")
-
-		// Consultar nombre, apellidos y expedientes del usuario
-		res := c.sendRequest(api.Request{
-			Action:   api.ActionManageAccounts,
-			Username: c.currentUser,
-			Token:    c.authToken,
-			Data:     username,
-		})
-		if !res.Success {
-			fmt.Println("No se pudo obtener la cuenta:", res.Message)
-			return
-		}
-		var user struct {
-			Nombre    string `json:"nombre"`
-			Apellidos string `json:"apellidos"`
-			Role      string `json:"role"`
-		}
-		if err := json.Unmarshal([]byte(res.Data), &user); err != nil {
-			fmt.Println("Error al procesar los datos del usuario:", err)
-			return
-		}
-
-		// Obtener expedientes del usuario
-		resExp := c.sendRequest(api.Request{
-			Action:   api.ActionListRecordIDs,
-			Username: username,
-			Token:    c.authToken,
-		})
-		if !resExp.Success {
-			fmt.Println("No se pudieron obtener los expedientes:", resExp.Message)
-			return
-		}
-		var ids []string
-		if err := json.Unmarshal([]byte(resExp.Data), &ids); err != nil {
-			fmt.Println("Error al procesar los IDs de expedientes:", err)
-			return
-		}
-		if len(ids) == 0 {
-			fmt.Println("Este usuario no tiene expedientes.")
-			return
-		}
-		fmt.Printf("El usuario %s (%s %s) tiene estos expedientes: %v\n", username, user.Nombre, user.Apellidos, ids)
-		id := ui.ReadInput("¿Cuál deseas modificar? Introduce el número de expediente")
-
-		// Pedir nuevos datos
-		diagnostico := ui.ReadInput("Nuevo diagnóstico")
-		tratamiento := ui.ReadInput("Nuevo tratamiento")
-		observaciones := ui.ReadInput("Nuevas observaciones")
-
-		record := map[string]string{
-			"id":            id,
-			"diagnostico":   diagnostico,
-			"tratamiento":   tratamiento,
-			"observaciones": observaciones,
-		}
-		data, _ := json.Marshal(record)
-
-		res2 := c.sendRequest(api.Request{
-			Action:   api.ActionEditRecord,
-			Username: username,
-			Token:    c.authToken,
-			Data:     string(data),
-		})
-
-		fmt.Println("Éxito:", res2.Success)
-		fmt.Println("Mensaje:", res2.Message)
-
+		c.editRecord()
 	case 3:
-		// Eliminar expediente
-		username := ui.ReadInput("¿De qué usuario quieres eliminar un expediente? (Introduce el nombre de usuario)")
-
-		// Consultar nombre, apellidos y expedientes del usuario
-		res := c.sendRequest(api.Request{
-			Action:   api.ActionManageAccounts,
-			Username: c.currentUser,
-			Token:    c.authToken,
-			Data:     username,
-		})
-		if !res.Success {
-			fmt.Println("No se pudo obtener la cuenta:", res.Message)
-			return
-		}
-		var user struct {
-			Nombre    string `json:"nombre"`
-			Apellidos string `json:"apellidos"`
-			Role      string `json:"role"`
-		}
-		if err := json.Unmarshal([]byte(res.Data), &user); err != nil {
-			fmt.Println("Error al procesar los datos del usuario:", err)
-			return
-		}
-
-		// Obtener expedientes del usuario
-		resExp := c.sendRequest(api.Request{
-			Action:   api.ActionListRecordIDs,
-			Username: username,
-			Token:    c.authToken,
-		})
-		if !resExp.Success {
-			fmt.Println("No se pudieron obtener los expedientes:", resExp.Message)
-			return
-		}
-		var ids []string
-		if err := json.Unmarshal([]byte(resExp.Data), &ids); err != nil {
-			fmt.Println("Error al procesar los IDs de expedientes:", err)
-			return
-		}
-		if len(ids) == 0 {
-			fmt.Println("Este usuario no tiene expedientes.")
-			return
-		}
-		fmt.Printf("El usuario %s (%s %s) tiene estos expedientes: %v\n", username, user.Nombre, user.Apellidos, ids)
-		id := ui.ReadInput("¿Qué expediente deseas eliminar? Introduce el número de expediente")
-
-		confirm := ui.Confirm(fmt.Sprintf("¿Estás seguro de que deseas eliminar el expediente %s de %s (%s %s)?", id, username, user.Nombre, user.Apellidos))
-		if !confirm {
-			fmt.Println("Operación cancelada.")
-			return
-		}
-
-		res2 := c.sendRequest(api.Request{
-			Action:   api.ActionDeleteRecord,
-			Username: username,
-			Token:    c.authToken,
-			Data:     id,
-		})
-
-		fmt.Println("Éxito:", res2.Success)
-		fmt.Println("Mensaje:", res2.Message)
+		c.deleteRecord()
 	}
 }
 
@@ -993,10 +1003,17 @@ func (c *client) listUsers() {
 	if res.Success {
 		// Esperamos un array de objetos con Username y Role
 		var users []struct {
-			Username string `json:"username"`
-			Role     string `json:"role"`
+			Username  string `json:"username"`
+			Role      string `json:"role"`
+			Nombre    string `json:"nombre,omitempty"`
+			Apellidos string `json:"apellidos,omitempty"`
 		}
-		if err := json.Unmarshal([]byte(res.Data), &users); err != nil {
+		decoded, err := base64.StdEncoding.DecodeString(res.Data)
+		if err != nil {
+			fmt.Println("Error al decodificar la lista de usuarios:", err)
+			return
+		}
+		if err := json.Unmarshal(decoded, &users); err != nil {
 			fmt.Println("Error al procesar la lista de usuarios:", err)
 			fmt.Println("DEBUG: res.Data =", res.Data)
 			return
@@ -1005,10 +1022,10 @@ func (c *client) listUsers() {
 			fmt.Println("No hay usuarios registrados.")
 			return
 		}
-		fmt.Printf("%-15s %-10s\n", "Usuario", "Rol")
-		fmt.Println(strings.Repeat("-", 26))
+		fmt.Printf("%-15s %-10s %-15s %-15s\n", "Usuario", "Rol", "Nombre", "Apellidos")
+		fmt.Println(strings.Repeat("-", 66))
 		for _, u := range users {
-			fmt.Printf("%-15s %-10s\n", u.Username, u.Role)
+			fmt.Printf("%-15s %-10s %-15s %-15s\n", u.Username, u.Role, u.Nombre, u.Apellidos)
 		}
 	}
 }

@@ -53,6 +53,8 @@ type Store interface {
 
 	// Dump imprime todo el contenido de la base de datos para depuración de errores.
 	Dump() error
+
+	CreateBucketIfNotExists(bucket string) error
 }
 
 // NewStore permite instanciar diferentes tipos de Store

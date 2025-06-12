@@ -33,6 +33,7 @@ func NewBboltStore(path string) (*BboltStore, error) {
 // SetMasterKey configura la clave maestra
 func (s *BboltStore) SetMasterKey(key []byte) {
 	s.masterKey = key
+	fmt.Println("s.masterKey:", s.masterKey)
 }
 
 // SetFileKey configura la clave maestra
@@ -135,7 +136,6 @@ func putAuthData(s *BboltStore, value []byte) ([]byte, error) {
 		"hash":          string(hash),
 		"salt":          string(salt),
 		"role":          authData["role"],
-		"data":          authData["data"],
 		"encryptedData": datosCifrados,
 		"fileKey":       base64.StdEncoding.EncodeToString(encryptedFileKey),
 		"nonce":         base64.StdEncoding.EncodeToString(fileKeyNonce),
@@ -181,7 +181,7 @@ func putUserData(s *BboltStore, value []byte) ([]byte, error) {
 }
 
 func putSessionsData(s *BboltStore, value []byte) ([]byte, error) {
-	data := string(value) //Array de Expedientes en JSON
+	data := string(value) // Array de sesiones en formato "token:expiracy"
 
 	// Generamos una clave de archivo aleatoria para cifrar este valor
 	fileKey, err := encryption.GenerateFileKey()
@@ -283,6 +283,7 @@ func (s *BboltStore) Get(namespace string, key []byte) ([]byte, error) {
 		EncryptedData string `json:"encryptedData"`
 		FileKey       string `json:"fileKey"`
 		Nonce         string `json:"nonce"`
+		Role          string `json:"role,omitempty"` // Solo para auth
 	}
 	if err := json.Unmarshal(val, &data); err != nil {
 		return nil, fmt.Errorf("error al parsear datos cifrados: %v", err)
@@ -315,6 +316,7 @@ func (s *BboltStore) Get(namespace string, key []byte) ([]byte, error) {
 		return nil, fmt.Errorf("error al descifrar el historial médico: %v", err)
 	}
 
+	fmt.Println("El valor descifrado es: ", plaintext)
 	return []byte(plaintext), nil
 	// var val []byte
 	// err := s.db.View(func(tx *bbolt.Tx) error {
@@ -419,4 +421,11 @@ func (s *BboltStore) Dump() error {
 		return fmt.Errorf("error al hacer el volcado de depuración: %v", err)
 	}
 	return nil
+}
+
+func (b *BboltStore) CreateBucketIfNotExists(bucket string) error {
+	return b.db.Update(func(tx *bbolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte(bucket))
+		return err
+	})
 }
