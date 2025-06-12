@@ -119,20 +119,8 @@ func CifrarString(textoPlano string, clave, nonce []byte) (string, error) {
 func DescifrarString(textoCifradoBase64 string, clave, nonce []byte) string {
 	// Decodificar el texto cifrado de base64
 	cifrado, _ := base64.StdEncoding.DecodeString(textoCifradoBase64) //si queremos tratar el error poner err en _ y descomentar lo demás, como en la fuciòn cifrarString
-	// if err != nil {
-	// 	return "", fmt.Errorf("error al decodificar el texto cifrado: %v", err)
-	// }
 
-	// Crear el bloque AES a partir de la clave
 	block, _ := aes.NewCipher(clave) //si queremos tratar el error poner err en _ y descomentar lo demás, como en la fuciòn cifrarString
-	// if err != nil {
-	// 	return "", fmt.Errorf("error al crear el cifrador AES: %v", err)
-	// }
-
-	// Asegurarse de que el nonce tiene el tamaño adecuado
-	// if len(nonce) != aes.BlockSize {
-	// 	return "", errors.New("el tamaño del nonce debe ser igual al tamaño del bloque AES")
-	// }
 
 	// Crear el modo CTR
 	stream := cipher.NewCTR(block, nonce)

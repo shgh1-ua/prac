@@ -209,15 +209,6 @@ func hashPassword(password string) (hash, salt []byte, err error) {
 	return hash, salt, err
 }
 
-// // verifyPassword compara una contraseña con su hash y salt.
-// func verifyPassword(password string, hash, salt []byte) bool {
-// 	newHash, err := scrypt.Key([]byte(password), salt, 16384, 8, 1, 32)
-// 	if err != nil {
-// 		return false
-// 	}
-// 	return string(newHash) == string(hash)
-// }
-
 func verifyPassword(password string, hash, salt []byte) bool {
 	newHash, err := scrypt.Key([]byte(password), salt, 16384, 8, 1, 32)
 	if err != nil {
