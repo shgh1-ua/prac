@@ -1,8 +1,6 @@
 package encryption
 
 import (
-	"bytes"
-	"compress/zlib"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
@@ -11,9 +9,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 	"os"
-	"strings"
+
+	// "io"
+	// "strings"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -22,117 +21,6 @@ func check(e error) {
 	if e != nil {
 		panic(e)
 	}
-}
-
-// func main() {
-// 	key := obtenerSHA256("Clave")
-// 	iv := obtenerSHA256("<inicializar>")
-
-// 	textoEnClaro := "Texto en claro"
-// 	nombreArchivoDatos := "datos.zip.enc"
-
-// 	//----------CIFRADO--------------
-// 	cifrarStringEnArchivo(textoEnClaro, nombreArchivoDatos, key, iv)
-
-// 	//----------DESCIFRADO-----------
-// 	textoEnClaroDescifrado := descifrarArchivoEnString(nombreArchivoDatos, key, iv)
-
-//		//----------Comprobación-----------
-//		if textoEnClaroDescifrado == textoEnClaro {
-//			fmt.Println("Cifrado realizado correctamente")
-//		} else {
-//			fmt.Println("Algo ha fallado con el cifrado")
-//		}
-//	}
-//
-// ------------------------------------------Trabajo con archivos----------------------------------------------------
-func DescifrarArchivoEnString(nombreArchivoDatos string, key []byte, iv []byte) string {
-	archivoOrigenComprimidoCifrado, err := os.Open(nombreArchivoDatos)
-	check(err)
-
-	var bufferDeBytesParaDescifraryDescomprimir bytes.Buffer
-
-	var lectorConDescifrado cipher.StreamReader
-	lectorConDescifrado.S, err = obtenerAESconCTR(key, iv)
-	lectorConDescifrado.R = archivoOrigenComprimidoCifrado
-	check(err)
-
-	lectorConDescifradoDescompresion, err := zlib.NewReader(lectorConDescifrado)
-	check(err)
-
-	_, err = io.Copy(&bufferDeBytesParaDescifraryDescomprimir, lectorConDescifradoDescompresion)
-	check(err)
-	archivoOrigenComprimidoCifrado.Close()
-
-	textoEnClaroDescifrado := bufferDeBytesParaDescifraryDescomprimir.String()
-	return textoEnClaroDescifrado
-}
-
-func CifrarStringEnArchivo(textoEnClaro string, nombreArchivoDatos string, key []byte, iv []byte) {
-	lectorTextoEnClaro := strings.NewReader(textoEnClaro)
-
-	archivoDestinoComprimidoyCifrado, err := os.Create(nombreArchivoDatos)
-	check(err)
-
-	var escritorConCifrado cipher.StreamWriter
-	escritorConCifrado.S, err = obtenerAESconCTR(key, iv)
-	escritorConCifrado.W = archivoDestinoComprimidoyCifrado
-	check(err)
-
-	escritorConCompresionyCifrado := zlib.NewWriter(escritorConCifrado)
-
-	_, err = io.Copy(escritorConCompresionyCifrado, lectorTextoEnClaro)
-	check(err)
-
-	escritorConCompresionyCifrado.Close()
-	archivoDestinoComprimidoyCifrado.Close()
-}
-
-// ------------------------------------------Trabajo con strings----------------------------------------------------
-// Cifra un texto plano usando AES en modo CTR y lo retorna como una cadena en base64.
-func CifrarString(textoPlano string, clave, nonce []byte) (string, error) {
-	// Crear el bloque AES a partir de la clave
-	block, err := aes.NewCipher(clave)
-	if err != nil {
-		return "", fmt.Errorf("error al crear el cifrador AES: %v", err)
-	}
-
-	// Asegurarse de que el nonce tiene el tamaño adecuado
-	if len(nonce) != aes.BlockSize {
-		return "", errors.New("el tamaño del nonce debe ser igual al tamaño del bloque AES")
-	}
-
-	// Crear el modo CTR
-	stream := cipher.NewCTR(block, nonce)
-
-	// Crear un buffer para el texto cifrado
-	cifrado := make([]byte, len(textoPlano))
-
-	// Cifrar el texto plano
-	stream.XORKeyStream(cifrado, []byte(textoPlano))
-
-	// Codificar el resultado en base64
-	return base64.StdEncoding.EncodeToString(cifrado), nil
-}
-
-// Toma un texto cifrado en base64, lo descifra usando AES en modo CTR y devuelve el texto original.
-func DescifrarString(textoCifradoBase64 string, clave, nonce []byte) string {
-	// Decodificar el texto cifrado de base64
-	cifrado, _ := base64.StdEncoding.DecodeString(textoCifradoBase64) //si queremos tratar el error poner err en _ y descomentar lo demás, como en la fuciòn cifrarString
-
-	block, _ := aes.NewCipher(clave) //si queremos tratar el error poner err en _ y descomentar lo demás, como en la fuciòn cifrarString
-
-	// Crear el modo CTR
-	stream := cipher.NewCTR(block, nonce)
-
-	// Crear un buffer para el texto descifrado
-	descifrado := make([]byte, len(cifrado))
-
-	// Descifrar el texto cifrado
-	stream.XORKeyStream(descifrado, cifrado)
-
-	// Convertir el texto descifrado a string
-	return string(descifrado) //, nil
 }
 
 // ------------------------------------------Trabajo con bytes----------------------------------------------------
@@ -196,10 +84,6 @@ func GenerateFileKey() ([]byte, error) {
 		return nil, errors.New("no se pudo generar una clave completa")
 	}
 	return key, nil
-}
-
-func DeriveMasterKey(password, salt []byte) []byte { //A partir de la contraseña del usuario
-	return argon2.IDKey(password, salt, 1, 64*1024, 4, 32) // AES-256
 }
 
 // ----------------------------------------- Funciones principales nuevas --------------------------------------------
@@ -284,6 +168,7 @@ func VerifyAndDecryptStr(encoded string, key []byte) (string, error) {
 	expectedMAC := mac.Sum(nil)
 
 	if !hmac.Equal(signReceived, expectedMAC) {
+		fmt.Printf("HMAC ---> received: %s, expected: %s", signReceived, expectedMAC)
 		return "", errors.New("firma HMAC inválida: los datos han sido modificados")
 	}
 
@@ -303,6 +188,7 @@ func VerifyAndDecryptStr(encoded string, key []byte) (string, error) {
 func VerifyAndDecryptBytes(datos []byte, key []byte) (string, error) {
 	// Comprobamos estado de los datos
 	if len(datos) < aes.BlockSize+sha256.Size {
+		fmt.Println("Entra a la medicion")
 		return "", errors.New("Datos corruptos o incompletos para contener un nonce válido")
 	}
 
@@ -318,17 +204,22 @@ func VerifyAndDecryptBytes(datos []byte, key []byte) (string, error) {
 	expectedMAC := mac.Sum(nil)
 
 	if !hmac.Equal(signReceived, expectedMAC) {
+		fmt.Println("Entra al HMAC")
 		return "", errors.New("firma HMAC inválida: los datos han sido modificados")
 	}
 
 	stream, err := obtenerAESconCTR(key, nonce)
 	if err != nil {
+		fmt.Println("Entra al AESCTR")
 		return "", err
 	}
 
+	fmt.Println("EncryptedData:", len(ciphertext), ciphertext)
+	fmt.Println("Nonce:", len(nonce), nonce)
+
 	plaintext := make([]byte, len(ciphertext))
 	stream.XORKeyStream(plaintext, ciphertext)
-
+	fmt.Println("Clave archivo:", len(plaintext), plaintext)
 	return string(plaintext), nil
 }
 
@@ -339,4 +230,174 @@ func GenerateRandomNonce(size int) ([]byte, error) { //Mejor que el nonce sea ú
 		return nil, err
 	}
 	return nonce, nil
+}
+
+//-------------------------------------------Trabajo con claves maestras------------------------------------------
+
+const ( //Hiperparámetros para derivar de forma segura con Argon2
+	saltLength   = 16
+	keyLength    = 32
+	nonceSize    = 12
+	saltPath     = "config/salt.bin"
+	argonTime    = 1
+	argonMemory  = 64 * 1024
+	argonThreads = 4
+)
+
+// Deriva la clave maestra con Argon2
+func DeriveMasterKey(password []byte, salt []byte) []byte {
+	return argon2.IDKey(password, salt, argonTime, argonMemory, argonThreads, keyLength)
+}
+
+// Genera un salt aleatorio
+func generateSalt() ([]byte, error) {
+	salt := make([]byte, saltLength)
+	_, err := rand.Read(salt)
+	return salt, err
+}
+
+// Guarda el salt en disco
+func saveSalt(salt []byte) error {
+	return os.WriteFile(saltPath, salt, 0600)
+}
+
+// Carga el salt desde disco, o lo genera si no existe
+func LoadOrCreateSalt() ([]byte, error) {
+	if _, err := os.Stat(saltPath); errors.Is(err, os.ErrNotExist) {
+		salt, err := generateSalt()
+		if err != nil {
+			return nil, err
+		}
+		if err := saveSalt(salt); err != nil {
+			return nil, err
+		}
+		return salt, nil
+	}
+	return os.ReadFile(saltPath)
+}
+
+// Genera una clave maestra y la guarda cifrada en un archivo
+func GenerateAndSaveMasterKey(path, password string) error {
+	// Paso 1: generar clave real (clave de uso)
+	claveReal := make([]byte, keyLength)
+	if _, err := rand.Read(claveReal); err != nil {
+		return err
+	}
+
+	// Paso 2: generar salt y derivar clave
+	salt := make([]byte, saltLength)
+	if _, err := rand.Read(salt); err != nil {
+		return err
+	}
+
+	// passwordByte, err := base64.StdEncoding.DecodeString(password)
+	// if err != nil {
+	// 	return err
+	// }
+	claveDerivada := DeriveMasterKey([]byte(password), salt)
+
+	// Paso 3: cifrar clave real con AES-GCM
+	block, err := aes.NewCipher(claveDerivada)
+	if err != nil {
+		return err
+	}
+	gcm, err := cipher.NewGCM(block) //Usamos modo GCM para evitar facilitar programación
+	if err != nil {
+		return err
+	}
+	nonce := make([]byte, nonceSize)
+	if _, err := rand.Read(nonce); err != nil {
+		return err
+	}
+	cifrado := gcm.Seal(nil, nonce, claveReal, nil)
+
+	// Paso 4: guardar en archivo: salt + nonce + cifrado
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	_, err = file.Write(append(append(salt, nonce...), cifrado...))
+	return err
+}
+
+// Carga y descifra la clave maestra desde archivo
+func LoadMasterKey(path, password string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) < saltLength+nonceSize+keyLength {
+		return nil, errors.New("archivo inválido o corrupto")
+	}
+
+	salt := data[:saltLength]
+	nonce := data[saltLength : saltLength+nonceSize]
+	cifrado := data[saltLength+nonceSize:]
+
+	// passwordByte, err := base64.StdEncoding.DecodeString(password)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	claveDerivada := DeriveMasterKey([]byte(password), salt)
+
+	block, err := aes.NewCipher(claveDerivada)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	claveReal, err := gcm.Open(nil, nonce, cifrado, nil)
+	if err != nil {
+		return nil, errors.New("contraseña incorrecta o archivo dañado")
+	}
+	return claveReal, nil
+}
+
+func ChangeMasterKey(path string, passwordActual, newPassword string) error {
+	// Cargar clave real descifrada con la contraseña actual
+	claveReal, err := LoadMasterKey(path, passwordActual)
+	if err != nil {
+		return fmt.Errorf("clave actual incorrecta: %w", err)
+	}
+	fmt.Printf("Clave real actual (hex): %x\n", claveReal)
+
+	// Derivar nueva clave desde nueva contraseña
+	salt := make([]byte, saltLength)
+	if _, err := rand.Read(salt); err != nil {
+		return err
+	}
+
+	// new , _ := base64.StdEncoding.EncodeToString()
+	claveDerivadaNueva := DeriveMasterKey([]byte(newPassword), salt)
+
+	fmt.Printf("Clave derivada nueva (hex): %x\n", claveDerivadaNueva)
+
+	// Cifrar clave real con la nueva clave derivada
+	block, err := aes.NewCipher(claveDerivadaNueva)
+	if err != nil {
+		return err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return err
+	}
+	nonce := make([]byte, nonceSize)
+	if _, err := rand.Read(nonce); err != nil {
+		return err
+	}
+	cifrado := gcm.Seal(nil, nonce, claveReal, nil)
+
+	// Sobrescribir el archivo con los nuevos datos
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	_, err = file.Write(append(append(salt, nonce...), cifrado...))
+	return err
 }

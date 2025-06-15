@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/smtp"
 	"os"
 	"sort"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"prac/pkg/ui"
 
 	"crypto/aes"
+	"crypto/rand"
 	"crypto/tls"
 )
 
@@ -169,8 +171,9 @@ func (c *client) adminMenu() {
 		"Asignar o cambiar roles de usuario",               //3
 		"Acceder a estadísticas",                           //4
 		"Acceder a logs del sistema",                       //5
-		"Borrar TODOS los usuarios y datos (solo pruebas)", //6
-		"Cerrar sesión",                                    //7
+		"Establecer clave maestra",                         //6
+		"Borrar TODOS los usuarios y datos (solo pruebas)", //7
+		"Cerrar sesión",                                    //8
 	}
 
 	choice := ui.PrintMenu(title, options)
@@ -187,12 +190,59 @@ func (c *client) adminMenu() {
 	case 5:
 		c.viewLogs()
 	case 6:
-		c.deleteAllUsersAndData()
+		c.setMKey()
 	case 7:
+		c.deleteAllUsersAndData()
+	case 8:
 		c.logoutUser()
 	default:
 		fmt.Println("Opción no existente, Intente de nuevo")
 	}
+}
+
+func (c *client) setMKey() {
+	ui.ClearScreen()
+	fmt.Println("** Configuración de clave maestra **")
+
+	const file = "master_key.dat" //Archivo que contiene clave maestra
+
+	actual := ui.ReadPassword("Introduce clave maestra actual")
+	new := ui.ReadPassword("Introduce nueva clave maestra")
+	confirmation := ui.ReadPassword("Confirma nueva clave maestra")
+
+	if new != confirmation {
+		fmt.Println("Las nuevas contraseñas no coinciden.")
+		return
+	}
+
+	if err := encryption.ChangeMasterKey(file, actual, new); err != nil {
+		fmt.Println("Error al cambiar la clave maestra:", err)
+		return
+	}
+
+	fmt.Println("Clave maestra cambiada correctamente") // // Leer contraseña maestra del admin
+	// passwordKey, err := ui.ReadBytes("Introduce la contraseña maestra")
+	// if err != nil {
+	// 	log.Fatal("Error leyendo la contraseña:", err)
+	// }
+	// // Obtener (o crear) el salt
+	// salt, err := encryption.LoadOrCreateSalt()
+	// if err != nil {
+	// 	log.Fatal("Error cargando salt:", err)
+	// }
+
+	// // Derivar la clave maestra
+	// masterKey := encryption.DeriveMasterKey(passwordKey, salt)
+
+	// res := c.sendRequest(api.Request{
+	// 	Action:    api.ActionSetMasterKey,
+	// 	Username:  c.currentUser,
+	// 	DataBytes: masterKey,
+	// })
+
+	// if res.Success == true {
+	// 	fmt.Println("Clave maestra derivada correctamente.")
+	// }
 }
 
 // Modificamos el registro para incluir el rol.
@@ -229,12 +279,31 @@ func (c *client) registerUser() {
 		return
 	}
 
+	// Generar código 2FA
+	twoFACode := generate2FACode()
+	// Enviar código 2FA al email del usuario
+	subject := "Código de autenticación para registro"
+	body := fmt.Sprintf("Hola %s,\n\nTu código de autenticación para completar el registro es: %s\n\nGracias.", name, twoFACode)
+	err := sendEmail(email, subject, body)
+	if err != nil {
+		fmt.Println("No se pudo enviar el email con el código de autenticación:", err)
+		return
+	}
+	fmt.Println("Se ha enviado un código de autenticación a tu email. Por favor, revisa tu bandeja y escribe el código para continuar.")
+	inputCode := ui.ReadInput("Código de autenticación")
+
+	if inputCode != twoFACode {
+		fmt.Println("Código incorrecto. Registro cancelado.")
+		return
+	}
+
 	res := c.sendRequest(api.Request{
 		Action:   api.ActionRegister,
 		Username: username,
 		Password: password,
 		Data:     string(data),
 		Role:     role,
+		Email:    email,
 	})
 
 	fmt.Println("Éxito:", res.Success)
@@ -244,15 +313,41 @@ func (c *client) registerUser() {
 		// Guardamos el token y el usuario actual
 		c.currentUser = username
 		c.authToken = res.Token
-		fmt.Println("Debugging en registerUser :) ::: c.currentUser = ", c.currentUser, " c.authToken = ", c.authToken)
-
-		// Si el rol es admin, mostramos el menú de administrador
-		// if res.Data == "admin" {
-		// 	fmt.Println("Iniciando sesión como administrador...")
-		// 	ui.Pause("Pulsa [Enter] para continuar...")
-		// 	c.adminMenu()
-		// }
+		fmt.Println("Usuario registrado correctamente.")
+		// fmt.Println("Debugging en registerUser :) ::: c.currentUser = ", c.currentUser, " c.authToken = ", c.authToken)
 	}
+}
+
+func generate2FACode() string {
+	b := make([]byte, 3) // 3 bytes = 6 hex digits, usaremos sólo números
+	_, err := rand.Read(b)
+	if err != nil {
+		return "000000" // fallback
+	}
+	return fmt.Sprintf("%06d", int(b[0])<<16|int(b[1])<<8|int(b[2])%1000000)
+}
+
+// sendEmail envía un email con asunto y mensaje al destinatario
+func sendEmail(toEmail, subject, body string) error {
+	from := "estherconstelacion@gmail.com" // Cambia por tu email emisor
+	password := "rgaf bubo cwjd zcmp"      // Cambia por tu password o app password
+
+	smtpHost := "smtp.gmail.com"
+	smtpPort := "587"
+
+	auth := smtp.PlainAuth("", from, password, smtpHost)
+
+	msg := []byte("To: " + toEmail + "\r\n" +
+		"Subject: " + subject + "\r\n" +
+		"MIME-version: 1.0;\r\nContent-Type: text/plain; charset=\"UTF-8\";\r\n\r\n" +
+		body + "\r\n")
+
+	err := smtp.SendMail(smtpHost+":"+smtpPort, auth, from, []string{toEmail}, msg)
+	if err != nil {
+		log.Printf("Error enviando email: %v\n", err)
+		return err
+	}
+	return nil
 }
 
 // Ver todos los expedientes médicos
@@ -291,11 +386,15 @@ func (c *client) createRecord() {
 		return
 	}
 
-	var user struct {
-		Nombre    string `json:"nombre"`
-		Apellidos string `json:"apellidos"`
-		Role      string `json:"role"`
-	}
+	/*ESTO VA A FALLAR Y TE EXPLICO POR QUÉ:
+	res.Data va a venir cifrado todo vendrá con encryptedData, hash, salt, fileKey y nonce.
+	Pues mira la función getAllUsers y replica el descifrado en el cliente pero para un solo usuario
+	(obtienes clave maestra, descifras fileKey con nonce y clave maestra, luego descifras encryptedData con fileKey y por ultimo le haces unmarshal)
+	Ya eso deberia ser suficiente para obtener un user de tipo api.User (importante que mires api.go y uses sus tipos o añadas lo que consideres*/
+	/*IMPORTANTISIMO TAMBIEN:
+	Cuando añadas un expediente a Userdata añade ese expediente tanto para el medico que lo crea como para el paciente (mismo namespace diferente username)
+	Esto nos facilitará mostrar los expedientes que solo corresponden a ciertos pacientes o los que corresponden a ciertos doctores*/
+	var user api.User
 	if err := json.Unmarshal([]byte(res.Data), &user); err != nil {
 		fmt.Println("Error al procesar los datos del usuario:", err)
 		return
@@ -311,6 +410,7 @@ func (c *client) createRecord() {
 	observaciones := ui.ReadInput("Añada observaciones")
 
 	record := map[string]string{
+		"nombre":        username,
 		"diagnostico":   diagnostico,
 		"tratamiento":   tratamiento,
 		"observaciones": observaciones,
@@ -319,7 +419,7 @@ func (c *client) createRecord() {
 
 	res2 := c.sendRequest(api.Request{
 		Action:   api.ActionCreateRecord,
-		Username: username,
+		Username: c.currentUser,
 		Token:    c.authToken,
 		Data:     string(data),
 	})
@@ -792,88 +892,6 @@ func (c *client) fetchData() {
 }
 
 // updateData pide nuevo texto y lo envía al servidor con ActionUpdateData.
-func (c *client) updateData() {
-	ui.ClearScreen()
-	fmt.Println("** Actualizar datos del usuario **")
-
-	if c.currentUser == "" || c.authToken == "" {
-		fmt.Println("No estás logueado. Inicia sesión primero.")
-		return
-	}
-
-	// //Leeremos el archivo JSON serializado
-	// p := Persona{
-	// 	Nombre: "Sebastián",
-	// 	Edad:   25,
-	// 	Email:  "sebastian@example.com",
-	// }
-
-	// // Imprimir JSON como string
-	// fmt.Println(string(jsonData))
-
-	// Leemos la nueva Data
-	// newData := ui.ReadInput("Introduce el contenido del historial que desees almacenar")
-	fmt.Println("Introduce el contenido del nuevo historial médico que desees almacenar:")
-	nombre := ui.ReadInput("Nombre")
-	// edad := ui.ReadInt("Edad")
-	diagnostico := ui.ReadInput("Diagnostico")
-	tratamiento := ui.ReadInput("Tratamiento")
-
-	historial := api.Historial{
-		Nombre:      nombre,
-		Diagnostico: diagnostico,
-		Tratamiento: tratamiento,
-	}
-
-	newData, err := json.Marshal(historial)
-	if err != nil { // manejar error
-		fmt.Println("Error al serializar los datos", err)
-		return
-	}
-
-	//Ciframos antes de mandar al servidor. Lo hacemos suponiendo que el servidor no es de confiar por sea cual fuere la razón (administrador poco confiable, datos comprometidos, uso de http, etc.)
-	key := encryption.ObtenerSHA256("Clave")
-	iv := encryption.ObtenerSHA256("<inicializar>")[:aes.BlockSize]
-
-	textoEnClaro := string(newData)
-	/*Meteremos los datos cifrados en un archivo .enc porque:
-	✅ Ventajas:
-		- Modularidad: puedes inspeccionar, mover, hacer backup o gestionar esos archivos fácilmente.
-		- Escalabilidad: ideal si cada usuario tiene su propio archivo cifrado (ej: historial_usuario123.zip.enc).
-		- Interoperabilidad: otros procesos (scripts, servicios) pueden usar los archivos sin tocar el código del programa.
-		- Manejo eficiente de grandes volúmenes de datos: archivos son más fáciles de manejar que strings gigantes.
-	❌ Desventajas:
-		- Es más lento (I/O con disco).
-		- Requiere limpieza de archivos temporales para evitar residuos.
-		- En sistemas distribuidos (como web APIs), debes transmitirlos con cuidado (base64, MIME types, etc.).
-	*/
-	//----------CIFRADO--------------
-	datosCifrados, err := encryption.CifrarString(textoEnClaro, key, iv)
-	if err != nil {
-		fmt.Println("Error al cifrar Datos:", err)
-		return
-	}
-
-	//----------DESCIFRADO-----------
-	// textoEnClaroDescifrado := encryption.DescifrarArchivoEnString(nombreArchivoDatos, key, iv)
-	// //----------Comprobación-----------
-	// if textoEnClaroDescifrado == textoEnClaro {
-	// 	fmt.Println("Cifrado realizado correctamente")
-	// } else {
-	// 	fmt.Println("Algo ha fallado con el cifrado")
-	// }
-
-	// Enviar el contenido cifrado
-	res := c.sendRequest(api.Request{
-		Action:   api.ActionUpdateData,
-		Username: c.currentUser,
-		Token:    c.authToken,
-		Data:     datosCifrados,
-	})
-
-	fmt.Println("Éxito:", res.Success)
-	fmt.Println("Mensaje:", res.Message)
-}
 
 func (c *client) updateDataSinCifrar() {
 	ui.ClearScreen()
@@ -992,41 +1010,20 @@ func (c *client) listUsers() {
 	ui.ClearScreen()
 	fmt.Println("** Lista de usuarios existentes **")
 
-	res := c.sendRequest(api.Request{
-		Action:   api.ActionListUsers,
-		Username: c.currentUser,
-		Token:    c.authToken,
-	})
-
-	fmt.Println("Éxito:", res.Success)
-	fmt.Println("Mensaje:", res.Message)
-	if res.Success {
-		// Esperamos un array de objetos con Username y Role
-		var users []struct {
-			Username  string `json:"username"`
-			Role      string `json:"role"`
-			Nombre    string `json:"nombre,omitempty"`
-			Apellidos string `json:"apellidos,omitempty"`
-		}
-		decoded, err := base64.StdEncoding.DecodeString(res.Data)
-		if err != nil {
-			fmt.Println("Error al decodificar la lista de usuarios:", err)
-			return
-		}
-		if err := json.Unmarshal(decoded, &users); err != nil {
-			fmt.Println("Error al procesar la lista de usuarios:", err)
-			fmt.Println("DEBUG: res.Data =", res.Data)
-			return
-		}
-		if len(users) == 0 {
-			fmt.Println("No hay usuarios registrados.")
-			return
-		}
-		fmt.Printf("%-15s %-10s %-15s %-15s\n", "Usuario", "Rol", "Nombre", "Apellidos")
-		fmt.Println(strings.Repeat("-", 66))
-		for _, u := range users {
-			fmt.Printf("%-15s %-10s %-15s %-15s\n", u.Username, u.Role, u.Nombre, u.Apellidos)
-		}
+	//Esperamos un array de tipo api.User, que contiene toda la info de los usuarios registrados
+	users, err := c.getAllUsersDecrypted()
+	if err != nil {
+		fmt.Println("Error al obtener los usuarios: ", err)
+		return
+	}
+	if len(users) == 0 {
+		fmt.Println("No hay usuarios registrados.")
+		return
+	}
+	fmt.Printf("%-15s %-10s %-15s %-15s\n", "Usuario", "Rol", "Nombre", "Apellidos")
+	fmt.Println(strings.Repeat("-", 66))
+	for _, u := range users {
+		fmt.Printf("%-15s %-10s %-15s %-15s\n", u.Username, u.Role, u.Nombre, u.Apellidos)
 	}
 }
 
@@ -1163,10 +1160,7 @@ func (c *client) updatePersonalData() {
 	fmt.Println("Mensaje:", res2.Message)
 }
 
-func (c *client) listPatients() {
-	ui.ClearScreen()
-	fmt.Println("** Lista de pacientes **")
-
+func (c *client) getAllUsersDecrypted() ([]api.User, error) {
 	res := c.sendRequest(api.Request{
 		Action:   api.ActionListUsers,
 		Username: c.currentUser,
@@ -1174,24 +1168,93 @@ func (c *client) listPatients() {
 	})
 
 	if !res.Success {
-		fmt.Println("No se pudo obtener la lista de pacientes:", res.Message)
-		return
+		return nil, fmt.Errorf("no se pudo obtener la lista de usuarios: %s", res.Message)
 	}
 
-	// Esperamos un array de objetos con Username, Nombre y Apellidos
-	var pacientes []struct {
-		Username  string `json:"username"`
-		Nombre    string `json:"nombre"`
-		Apellidos string `json:"apellidos"`
-		Role      string `json:"role"`
+	var patientsInfo []api.UserAuth
+	var users []api.User
+
+	data, err := base64.StdEncoding.DecodeString(res.Data)
+	if err != nil {
+		return nil, fmt.Errorf("error al decodificar base64: %w", err)
+	}
+	if err := json.Unmarshal(data, &patientsInfo); err != nil {
+		return nil, fmt.Errorf("error al parsear JSON: %w", err)
 	}
 
-	if err := json.Unmarshal([]byte(res.Data), &pacientes); err != nil {
-		fmt.Println("Error al procesar la lista de pacientes:", err)
-		fmt.Println("DEBUG: res.Data =", res.Data)
-		return
+	// Obtener clave maestra una sola vez
+	res = c.sendRequest(api.Request{
+		Action:   api.ActionGetMasterKey,
+		Username: c.currentUser,
+		Token:    c.authToken,
+	})
+	if !res.Success {
+		return nil, fmt.Errorf("error al obtener llave maestra: %s", res.Message)
 	}
-	fmt.Println("DEBUG: pacientes =", pacientes)
+	masterKey := res.DataBytes
+
+	for _, patient := range patientsInfo {
+		stored := patient.Data
+
+		if stored["encryptedData"] == "" {
+			continue
+		}
+
+		fileKeyEnc, err := base64.StdEncoding.DecodeString(stored["fileKey"])
+		if err != nil {
+			fmt.Println("Error al decodificar fileKey: ", err)
+			continue
+		}
+		nonce, err := base64.StdEncoding.DecodeString(stored["nonce"])
+		if err != nil {
+			fmt.Println("Error al decodificar nonce: ", err)
+			continue
+		}
+		fileKey, err := encryption.DecryptFileKey(fileKeyEnc, nonce, masterKey)
+		if err != nil {
+			fmt.Println("fileKey: ", len(fileKeyEnc), " nonce: ", len(nonce), " masterKey: ", len(masterKey))
+			fmt.Println("Error al descifrar fileKey de ", patient.Username, ": ", err)
+			continue
+		}
+
+		plaintext, err := encryption.VerifyAndDecryptStr(stored["encryptedData"], fileKey)
+		if err != nil {
+			fmt.Println("Error al descifrar datos de ", patient.Username, ": ", err)
+			continue
+		}
+
+		var decrypted struct {
+			Nombre    string `json:"nombre"`
+			Apellidos string `json:"apellidos"`
+			Edad      int    `json:"edad"`
+			Email     string `json:"email"`
+		}
+		if err := json.Unmarshal([]byte(plaintext), &decrypted); err != nil {
+			fmt.Println("Error al parsear JSON descifrado: ", err)
+			continue
+		}
+
+		users = append(users, api.User{
+			Username:  patient.Username,
+			Role:      stored["role"],
+			Nombre:    decrypted.Nombre,
+			Apellidos: decrypted.Apellidos,
+			Edad:      decrypted.Edad,
+			Email:     decrypted.Email,
+		})
+	}
+
+	return users, nil
+}
+
+func (c *client) listPatients() {
+	ui.ClearScreen()
+	fmt.Println("** Lista de pacientes **")
+
+	users, err := c.getAllUsersDecrypted()
+	if err != nil {
+		fmt.Println("Error al obtener los usuarios: ", err)
+	}
 
 	// Filtrar solo pacientes y ordenar por nombre de usuario
 	var lista []struct {
@@ -1199,7 +1262,7 @@ func (c *client) listPatients() {
 		Nombre    string
 		Apellidos string
 	}
-	for _, p := range pacientes {
+	for _, p := range users {
 		if p.Role == "patient" {
 			lista = append(lista, struct {
 				Username  string

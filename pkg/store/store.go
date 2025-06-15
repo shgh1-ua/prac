@@ -48,6 +48,12 @@ type Store interface {
 
 	ForEach(namespace string, fn func(key, value []byte) error) error // Asegúrate de incluir esto
 
+	//Métodos para gestionar clave maestra
+	SetMasterKey(key []byte) error
+	GetMasterKey() ([]byte, error)
+	SetFileKey(key []byte) error
+	GetFileKey() ([]byte, error)
+
 	// Close cierra cualquier recurso abierto (por ej. cerrar la base de datos).
 	Close() error
 

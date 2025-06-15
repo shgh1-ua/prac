@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/eiannone/keyboard"
+	"golang.org/x/term"
 )
 
 // PrintMenu muestra un menú y solicita al usuario que seleccione una opción.
@@ -42,12 +43,14 @@ func ReadInput(prompt string) string {
 // ReadPassword solicita una contraseña al usuario y la oculta mientras se escribe.
 // ReadPassword solicita una contraseña mostrando * por cada carácter.
 func ReadPassword(prompt string) string {
-	fmt.Print(prompt + ": ")
-	password := ""
 	if err := keyboard.Open(); err != nil {
 		return ""
 	}
 	defer keyboard.Close()
+
+	fmt.Print(prompt + ": ") // <- Mover esto después de keyboard.Open()
+
+	password := ""
 	for {
 		char, key, err := keyboard.GetKey()
 		if err != nil {
@@ -68,6 +71,17 @@ func ReadPassword(prompt string) string {
 		}
 	}
 	return password
+}
+
+// readBytes solicita una contraseña al usuario sin mostrarla por pantalla.
+func ReadBytes(prompt string) ([]byte, error) {
+	fmt.Print(prompt + ": ")
+	password, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println() // Para que la siguiente línea no quede pegada al prompt
+	if err != nil {
+		return nil, err
+	}
+	return password, nil
 }
 
 // ...existing code...

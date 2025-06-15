@@ -31,14 +31,22 @@ func NewBboltStore(path string) (*BboltStore, error) {
 }
 
 // SetMasterKey configura la clave maestra
-func (s *BboltStore) SetMasterKey(key []byte) {
+func (s *BboltStore) SetMasterKey(key []byte) error {
+	if len(key) == 0 {
+		return fmt.Errorf("clave maestra vacía")
+	}
 	s.masterKey = key
 	fmt.Println("s.masterKey:", s.masterKey)
+	return nil
 }
 
 // SetFileKey configura la clave maestra
-func (s *BboltStore) SetFileKey(key []byte) {
+func (s *BboltStore) SetFileKey(key []byte) error {
+	if len(key) == 0 {
+		return fmt.Errorf("clave maestra vacía")
+	}
 	s.fileKey = key
+	return nil
 }
 
 // GetMasterKey configura la clave maestra
@@ -271,7 +279,7 @@ func (s *BboltStore) Get(namespace string, key []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	// Si es el bucket "auth", devuelve el JSON crudo (no descifrado)
+	// Si es el bucket "auth", devuelve el JSON crudo (no descifrado) ---> para comprobar el login
 	if namespace == "auth" {
 		return val, nil
 	}
@@ -296,14 +304,6 @@ func (s *BboltStore) Get(namespace string, key []byte) ([]byte, error) {
 	encryptedFileKey, _ := base64.StdEncoding.DecodeString(data.FileKey)
 	nonce, _ := base64.StdEncoding.DecodeString(data.Nonce)
 
-	// Si no hay clave maestra, devolver el valor cifrado sin descifrar ---> Permite registrar e iniciar sesión sin clave maestra pero sin perder seguridad
-	if s.masterKey == nil {
-		if namespace != "auth" {
-			return nil, fmt.Errorf("clave maestra no configurada y no se permite acceso a este namespace")
-		}
-		return val, nil
-	}
-
 	// Desciframos la fileKey
 	fileKey, err := encryption.DecryptFileKey(encryptedFileKey, nonce, s.masterKey)
 	if err != nil {
@@ -313,7 +313,7 @@ func (s *BboltStore) Get(namespace string, key []byte) ([]byte, error) {
 	// Desciframos el contenido
 	plaintext, err := encryption.VerifyAndDecryptStr(data.EncryptedData, fileKey)
 	if err != nil {
-		return nil, fmt.Errorf("error al descifrar el historial médico: %v", err)
+		return nil, fmt.Errorf("error al descifrar datos: %v", err)
 	}
 
 	fmt.Println("El valor descifrado es: ", plaintext)

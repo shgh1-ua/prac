@@ -46,12 +46,14 @@ func main() {
 
 	// Inicia servidor en goroutine.
 	log.Println("Iniciando servidor...")
+	started := make(chan struct{})
 	go func() {
-		if err := server.Run(); err != nil {
+		if err := server.Run(started); err != nil {
 			log.Fatalf("Error del servidor: %v\n", err)
 		}
 	}()
-
+	<-started //Con esta instrucción esperamos a que el servidor termine de iniciarse anets de iniciar el cliente--> se hace porque al principio el cliente se hace en la terminal
+	log.Println("Servidor listo, iniciando cliente...")
 	// Esperamos un tiempo prudencial a que arranque el servidor.
 	const totalSteps = 20
 	for i := 1; i <= totalSteps; i++ {
